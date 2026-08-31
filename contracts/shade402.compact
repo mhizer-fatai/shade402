@@ -1,0 +1,115 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+struct AgentPolicy {
+    balance: Uint<64>;
+    dailyLimit: Uint<64>;
+    spentInPeriod: Uint<64>;
+    periodEndsAt: Uint<64>;
+    perPaymentLimit: Uint<64>;
+}
+
+export ledger agents: Map<Bytes<32>, AgentPolicy>;
+export ledger usedInvoices: Set<Bytes<32>>;
+export ledger lastSettledInvoice: Bytes<32>;
+export ledger totalSettledAmount: Uint<64>;
+export ledger totalDeposited: Uint<64>;
+
+witness localSecret(): Bytes<32>;
+
+circuit agentKey(): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "shade402:agent-key:v1"),
+        localSecret()
+    ]);
+}
+
+circuit currentPeriodSpent(account: AgentPolicy): Uint<64> {
+    if (blockTimeGte(account.periodEndsAt)) {
+        return 0;
+    }
+    return account.spentInPeriod;
+}
+
+circuit currentPeriodEnd(account: AgentPolicy): Uint<64> {
+    if (blockTimeGte(account.periodEndsAt)) {
+        return (account.periodEndsAt + 86400) as Uint<64>;
+    }
+    return account.periodEndsAt;
+}
+
+export circuit registerAgent(
+    dailyLimit: Uint<64>,
+    perPaymentLimit: Uint<64>,
+    periodEndsAt: Uint<64>
+): [] {
+    const key = disclose(agentKey());
+    assert(!agents.member(key), "Agent is already registered");
+    assert(dailyLimit > 0, "Daily limit must be positive");
+    assert(perPaymentLimit > 0, "Payment limit must be positive");
+    assert(perPaymentLimit <= dailyLimit, "Payment limit exceeds daily limit");
+    assert(blockTimeLt(disclose(periodEndsAt)), "Policy period must be in the future");
+
+    agents.insert(disclose(key), AgentPolicy {
+        balance: 0,
+        dailyLimit: disclose(dailyLimit),
+        spentInPeriod: 0,
+        periodEndsAt: disclose(periodEndsAt),
+        perPaymentLimit: disclose(perPaymentLimit)
+    });
+}
+
+export circuit deposit(amount: Uint<64>): [] {
+    const key = disclose(agentKey());
+    assert(agents.member(key), "Agent is not registered");
+    assert(amount > 0, "Deposit amount must be positive");
+
+    const account = agents.lookup(key);
+    receiveUnshielded(nativeToken(), disclose(amount));
+    agents.insert(key, AgentPolicy {
+        balance: disclose((account.balance + amount) as Uint<64>),
+        dailyLimit: account.dailyLimit,
+        spentInPeriod: account.spentInPeriod,
+        periodEndsAt: account.periodEndsAt,
+        perPaymentLimit: account.perPaymentLimit
+    });
+    totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
+}
+
+export circuit payInvoice(
+    recipient: UserAddress,
+    invoiceHash: Bytes<32>,
+    amount: Uint<64>
+): [] {
+    const key = disclose(agentKey());
+    assert(agents.member(key), "Agent is not registered");
+    assert(amount > 0, "Payment amount must be positive");
+
+    const account = agents.lookup(key);
+    assert(!usedInvoices.member(disclose(invoiceHash)), "Invoice has already been paid");
+    assert(account.balance >= amount, "Insufficient agent balance");
+    assert(account.perPaymentLimit >= amount, "Payment exceeds per-payment limit");
+
+    const periodSpent = currentPeriodSpent(account);
+    const nextPeriodEnd = currentPeriodEnd(account);
+    assert(periodSpent + amount <= account.dailyLimit, "Payment exceeds daily limit");
+
+    sendUnshielded(
+        nativeToken(),
+        disclose(amount) as Uint<128>,
+        right<ContractAddress, UserAddress>(disclose(recipient))
+    );
+
+    agents.insert(key, AgentPolicy {
+        balance: disclose((account.balance - amount) as Uint<64>),
+        dailyLimit: account.dailyLimit,
+        spentInPeriod: disclose((periodSpent + amount) as Uint<64>),
+        periodEndsAt: disclose(nextPeriodEnd),
+        perPaymentLimit: account.perPaymentLimit
+    });
+    usedInvoices.insert(disclose(invoiceHash));
+
+    lastSettledInvoice = disclose(invoiceHash);
+    totalSettledAmount = (totalSettledAmount + disclose(amount)) as Uint<64>;
+}
