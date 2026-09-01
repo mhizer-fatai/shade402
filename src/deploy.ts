@@ -19,6 +19,7 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
+import { createHash } from 'node:crypto';
 import { Shade402Client, type ShadePrivateState } from './shade-client';
 
 // @ts-expect-error Required for wallet sync
@@ -81,11 +82,16 @@ if (!fs.existsSync(contractPath)) {
 
 const Shade402 = await import(pathToFileURL(contractPath).href);
 
-const privateStateClient = new Shade402Client(1_000_000n, 100_000n);
-const compiledContract = CompiledContract.make('shade402', Shade402.Contract).pipe(
-  CompiledContract.withWitnesses(privateStateClient.getWitnesses()),
-  CompiledContract.withCompiledFileAssets(zkConfigPath),
+// Derive a stable agent secret from the wallet seed so deploy + CLI + e2e
+// all identify the same agent account on subsequent runs.
+const agentSecret = new Uint8Array(
+  createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
+const privateStateClient = new Shade402Client(agentSecret);
+const privateState: ShadePrivateState = { agentSecret };
+const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
+const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, privateStateClient.getWitnesses());
+const compiledContract = (CompiledContract as any).withCompiledFileAssets(witnessCompiled, zkConfigPath);
 
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
@@ -294,7 +300,7 @@ async function main() {
         compiledContract: compiledContract as any,
         args: [],
         privateStateId: PRIVATE_STATE_ID,
-        initialPrivateState: {} as ShadePrivateState,
+        initialPrivateState: privateState,
       });
       break;
     } catch (err: any) {

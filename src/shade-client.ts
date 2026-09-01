@@ -1,11 +1,15 @@
 import * as crypto from 'node:crypto';
 
 export interface ShadePrivateState {
-  privateBalance: bigint;
-  dailyLimit: bigint;
-  spentToday: bigint;
   agentSecret: Uint8Array;
-  usedNullifiers: Set<string>;
+}
+
+export interface AgentPolicy {
+  balance: bigint;
+  dailyLimit: bigint;
+  spentInPeriod: bigint;
+  periodEndsAt: bigint;
+  perPaymentLimit: bigint;
 }
 
 export interface InvoiceChallenge {
@@ -15,112 +19,71 @@ export interface InvoiceChallenge {
   expiresAt: number;
 }
 
-export interface PaymentReceipt {
-  invoiceHash: Uint8Array;
-  nullifier: Uint8Array;
-  amount: bigint;
+export interface PaymentPayload {
   recipient: Uint8Array;
-  timestamp: number;
-  settled: boolean;
+  invoiceHash: Uint8Array;
+  amount: bigint;
 }
 
 export class Shade402Client {
   private state: ShadePrivateState;
 
-  constructor(initialBalance: bigint = 0n, dailyLimit: bigint = 1000000n) {
-    this.state = {
-      privateBalance: initialBalance,
-      dailyLimit,
-      spentToday: 0n,
-      agentSecret: crypto.randomBytes(32),
-      usedNullifiers: new Set(),
-    };
+  constructor(agentSecret: Uint8Array = crypto.randomBytes(32)) {
+    this.state = { agentSecret };
+  }
+
+  public getSecret(): Uint8Array {
+    return this.state.agentSecret;
   }
 
   public getWitnesses() {
     return {
-      getPrivateBalance: (context: any): [ShadePrivateState, bigint] => {
-        return [this.state, this.state.privateBalance];
-      },
-      getDailyLimit: (context: any): [ShadePrivateState, bigint] => {
-        return [this.state, this.state.dailyLimit];
+      localSecret: (context: any): [ShadePrivateState, Uint8Array] => {
+        return [this.state, this.state.agentSecret];
       },
     };
   }
 
-  public deposit(amount: bigint): { commitmentHash: Uint8Array; newBalance: bigint } {
-    if (amount <= 0n) {
-      throw new Error('Deposit amount must be positive');
-    }
-    this.state.privateBalance += amount;
-    const commitmentHash = crypto.createHash('sha256')
-      .update(Buffer.concat([Buffer.from(this.state.agentSecret), Buffer.from(this.state.privateBalance.toString())]))
-      .digest();
-    
-    return {
-      commitmentHash: new Uint8Array(commitmentHash),
-      newBalance: this.state.privateBalance,
-    };
+  public static agentKey(agentSecret: Uint8Array): Uint8Array {
+    return new Uint8Array(
+      crypto.createHash('sha256')
+        .update(Buffer.concat([
+          Buffer.from('shade402:agent-key:v1'),
+          Buffer.from(agentSecret),
+        ]))
+        .digest(),
+    );
   }
 
-  public createPaymentPayload(challenge: InvoiceChallenge): {
-    recipient: Uint8Array;
-    invoiceHash: Uint8Array;
-    amount: bigint;
-    nullifier: Uint8Array;
-  } {
+  public getAgentKey(): Uint8Array {
+    return Shade402Client.agentKey(this.state.agentSecret);
+  }
+
+  public static invoiceHash(challenge: InvoiceChallenge): Uint8Array {
+    return new Uint8Array(
+      crypto.createHash('sha256')
+        .update(
+          `${challenge.invoiceId}:${challenge.recipientAddress}:${challenge.amount.toString()}:${challenge.expiresAt.toString()}`,
+        )
+        .digest(),
+    );
+  }
+
+  public static recipientHash(recipientAddress: string): Uint8Array {
+    return new Uint8Array(crypto.createHash('sha256').update(recipientAddress).digest());
+  }
+
+  public buildPaymentPayload(challenge: InvoiceChallenge): PaymentPayload {
     if (challenge.amount <= 0n) {
       throw new Error('Payment amount must be positive');
     }
     if (challenge.expiresAt <= Date.now()) {
       throw new Error('Invoice has expired');
     }
-    if (this.state.privateBalance < challenge.amount) {
-      throw new Error('Insufficient private balance to pay invoice');
-    }
-    if (this.state.spentToday + challenge.amount > this.state.dailyLimit) {
-      throw new Error('Payment exceeds configured daily limit');
-    }
-
-    const invoiceHash = crypto.createHash('sha256')
-      .update(`${challenge.invoiceId}:${challenge.recipientAddress}:${challenge.amount.toString()}`)
-      .digest();
-
-    const nullifier = crypto.createHash('sha256')
-      .update(Buffer.concat([
-        Buffer.from(this.state.agentSecret),
-        invoiceHash,
-        Buffer.from(this.state.privateBalance.toString())
-      ]))
-      .digest();
-
-    const nullifierHex = nullifier.toString('hex');
-    if (this.state.usedNullifiers.has(nullifierHex)) {
-      throw new Error('Invoice has already been paid');
-    }
-
-    const recipient = crypto.createHash('sha256')
-      .update(challenge.recipientAddress)
-      .digest();
-
-    // Deduct private balance locally
-    this.state.privateBalance -= challenge.amount;
-    this.state.spentToday += challenge.amount;
-    this.state.usedNullifiers.add(nullifierHex);
-
     return {
-      recipient: new Uint8Array(recipient),
-      invoiceHash: new Uint8Array(invoiceHash),
+      recipient: Shade402Client.recipientHash(challenge.recipientAddress),
+      invoiceHash: Shade402Client.invoiceHash(challenge),
       amount: challenge.amount,
-      nullifier: new Uint8Array(nullifier),
     };
-  }
-
-  public getBalance(): bigint {
-    return this.state.privateBalance;
-  }
-
-  public getDailyLimit(): bigint {
-    return this.state.dailyLimit;
   }
 }

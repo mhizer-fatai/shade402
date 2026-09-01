@@ -18,6 +18,7 @@ import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeploym
 import { createWallet, persistWalletState } from '../src/wallet';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { Shade402Client, type ShadePrivateState } from '../src/shade-client';
+import { createHash } from 'node:crypto';
 
 // @ts-expect-error wallet sync requires WebSocket
 globalThis.WebSocket = WebSocket;
@@ -61,11 +62,14 @@ async function main() {
   const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
   if (!fs.existsSync(contractPath)) fail('Compiled contract missing — run `npm run compile`.');
   const Shade402 = await import(pathToFileURL(contractPath).href);
-  const privateStateClient = new Shade402Client(1_000_000n, 100_000n);
-  const compiledContract = CompiledContract.make('shade402', Shade402.Contract).pipe(
-    CompiledContract.withWitnesses(privateStateClient.getWitnesses()),
-    CompiledContract.withCompiledFileAssets(zkConfigPath),
+  const agentSecret = new Uint8Array(
+    createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
   );
+  const privateStateClient = new Shade402Client(agentSecret);
+  const privateState: ShadePrivateState = { agentSecret };
+  const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
+  const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, privateStateClient.getWitnesses());
+  const compiledContract = (CompiledContract as any).withCompiledFileAssets(witnessCompiled, zkConfigPath);
 
   const walletCtx = await createWallet({ network, networkConfig, seed: SEED });
   await walletCtx.wallet.waitForSyncedState();
@@ -107,7 +111,7 @@ async function main() {
       contractAddress: deployment.address,
       compiledContract: compiledContract as any,
       privateStateId: PRIVATE_STATE_ID,
-      initialPrivateState: {} as ShadePrivateState,
+      initialPrivateState: privateState,
     });
   } catch (err: any) {
     await walletCtx.wallet.stop();

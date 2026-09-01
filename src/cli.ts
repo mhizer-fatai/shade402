@@ -19,6 +19,7 @@ import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeploym
 import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { Shade402Client, type ShadePrivateState } from './shade-client';
+import { createHash } from 'node:crypto';
 
 // Enable WebSocket for GraphQL subscriptions
 // @ts-expect-error Required for wallet sync
@@ -49,11 +50,14 @@ if (!fs.existsSync(contractPath)) {
 
 const Shade402 = await import(pathToFileURL(contractPath).href);
 
-const privateStateClient = new Shade402Client(1_000_000n, 100_000n);
-const compiledContract = CompiledContract.make('shade402', Shade402.Contract).pipe(
-  CompiledContract.withWitnesses(privateStateClient.getWitnesses()),
-  CompiledContract.withCompiledFileAssets(zkConfigPath),
+const agentSecret = new Uint8Array(
+  createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
+const privateStateClient = new Shade402Client(agentSecret);
+const privateState: ShadePrivateState = { agentSecret };
+const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
+const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, privateStateClient.getWitnesses());
+const compiledContract = (CompiledContract as any).withCompiledFileAssets(witnessCompiled, zkConfigPath);
 
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
@@ -162,7 +166,7 @@ async function main() {
       compiledContract: compiledContract as any,
       contractAddress: deployment.address,
       privateStateId: PRIVATE_STATE_ID,
-      initialPrivateState: {} as ShadePrivateState,
+      initialPrivateState: privateState,
     });
 
     console.log('  ✅ Connected!\n');
@@ -171,19 +175,37 @@ async function main() {
     let running = true;
     while (running) {
       console.log('─── Menu ───────────────────────────────────────────────────────');
-       console.log('  1. Deposit into private pool');
-       console.log('  2. Pay an HTTP 402 invoice');
-      console.log('  3. Check wallet balance');
-      console.log('  4. Exit\n');
+      console.log('  1. Register agent policy');
+      console.log('  2. Deposit funds');
+      console.log('  3. Pay an HTTP 402 invoice');
+      console.log('  4. View agent policy');
+      console.log('  5. Check wallet balance');
+      console.log('  6. Exit\n');
 
       const choice = await rl.question('  Your choice: ');
 
       switch (choice.trim()) {
         case '1': {
+          const dailyLimit = BigInt(await rl.question('  Daily limit: '));
+          const perPaymentLimit = BigInt(await rl.question('  Per-payment limit: '));
+          const periodHours = Number(await rl.question('  Period length (hours): ')) || 24;
+          const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + periodHours * 3600);
+          console.log('\n  Submitting registration (this may take 30-60 seconds)...');
+          try {
+            const tx = await deployed.callTx.registerAgent(dailyLimit, perPaymentLimit, periodEndsAt);
+            console.log(`\n  ✅ Agent registered`);
+            console.log(`  Transaction ID: ${tx.public.txId}\n`);
+          } catch (error) {
+            console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
+          }
+          break;
+        }
+
+        case '2': {
           const amount = BigInt(await rl.question('  Deposit amount: '));
           console.log('\n  Submitting transaction (this may take 30-60 seconds)...');
           try {
-            const tx = await deployed.callTx.deposit(amount, new Uint8Array(32));
+            const tx = await deployed.callTx.deposit(amount);
             console.log(`\n  ✅ Deposited ${amount} units`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Block height: ${tx.public.blockHeight}\n`);
@@ -193,27 +215,63 @@ async function main() {
           break;
         }
 
-        case '2': {
+        case '3': {
           const invoiceId = await rl.question('  Invoice ID: ');
           const recipient = await rl.question('  Recipient address: ');
           const amount = BigInt(await rl.question('  Payment amount: '));
+          const expiresInSec = Number(await rl.question('  Invoice valid for (seconds): ')) || 300;
+          const challenge = {
+            invoiceId,
+            recipientAddress: recipient,
+            amount,
+            expiresAt: Date.now() + expiresInSec * 1000,
+          };
+          const payload = privateStateClient.buildPaymentPayload(challenge);
           console.log('\n  Submitting private payment (this may take 30-60 seconds)...');
           try {
             const tx = await deployed.callTx.payInvoice(
-              cryptoHash(recipient),
-              cryptoHash(`${invoiceId}:${recipient}:${amount}`),
-              amount,
-              cryptoHash(`${invoiceId}:${Date.now()}`),
+              { bytes: payload.recipient },
+              payload.invoiceHash,
+              payload.amount,
             );
             console.log(`\n  ✅ Invoice paid: ${invoiceId}`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
+            console.log(`  Invoice hash: ${Buffer.from(payload.invoiceHash).toString('hex')}\n`);
           } catch (error) {
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
           break;
         }
 
-        case '3': {
+        case '4': {
+          console.log('\n  Reading agent policy from blockchain...');
+          try {
+            const contractState = await providers.publicDataProvider.queryContractState(deployment.address);
+            if (contractState) {
+              const ledgerState = Shade402.ledger(contractState.data);
+              const key = Shade402Client.agentKey(agentSecret);
+              const keyHex = Buffer.from(key).toString('hex');
+              if (ledgerState.agents.member(key)) {
+                const policy = ledgerState.agents.lookup(key);
+                console.log(`\n  Agent key: ${keyHex.slice(0, 16)}...`);
+                console.log(`  Balance:          ${policy.balance}`);
+                console.log(`  Daily limit:      ${policy.dailyLimit}`);
+                console.log(`  Spent this period: ${policy.spentInPeriod}`);
+                console.log(`  Period ends at:   ${new Date(Number(policy.periodEndsAt) * 1000).toISOString()}`);
+                console.log(`  Per-payment limit: ${policy.perPaymentLimit}\n`);
+              } else {
+                console.log('\n  Agent is not registered yet.\n');
+              }
+            } else {
+              console.log('\n  No contract state found.\n');
+            }
+          } catch (error) {
+            console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
+          }
+          break;
+        }
+
+        case '5': {
           console.log('\n  Checking balance...');
           const currentState = await walletCtx.wallet.waitForSyncedState();
           const currentBalance = currentState.unshielded.balances[unshieldedToken().raw] ?? 0n;
@@ -223,13 +281,13 @@ async function main() {
           break;
         }
 
-        case '4':
+        case '6':
           running = false;
           console.log('\n  👋 Goodbye!\n');
           break;
 
         default:
-           console.log('\n  ❌ Invalid choice. Please enter 1-4.\n');
+          console.log('\n  ❌ Invalid choice. Please enter 1-6.\n');
       }
     }
 
@@ -243,7 +301,3 @@ async function main() {
 }
 
 main().catch(console.error);
-
-function cryptoHash(value: string): Uint8Array {
-  return new Uint8Array(crypto.createHash('sha256').update(value).digest());
-}
