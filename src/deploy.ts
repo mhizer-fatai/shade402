@@ -107,14 +107,21 @@ async function createProviders(walletCtx: WalletContext) {
     getCoinPublicKey: () => walletCtx.shieldedSecretKeys.coinPublicKey,
     getEncryptionPublicKey: () => walletCtx.shieldedSecretKeys.encryptionPublicKey,
     async balanceTx(tx: any, ttl?: Date) {
-      // balanceUnboundTransaction -> finalizeRecipe is the complete balancing
-      // path in wallet-sdk 1.x; the earlier explicit signRecipe step is gone.
+      // balanceUnboundTransaction -> signRecipe -> finalizeRecipe is the
+      // complete balancing path in wallet-sdk 1.x. The explicit signRecipe
+      // step is required when the transaction spends unshielded inputs
+      // (e.g. contract deposits using receiveUnshielded); skipping it causes
+      // "Custom error: 192" (InputsSignaturesLengthMismatch) at submission.
       const recipe = await walletCtx.wallet.balanceUnboundTransaction(
         tx,
         { shieldedSecretKeys: walletCtx.shieldedSecretKeys, dustSecretKey: walletCtx.dustSecretKey },
         { ttl: ttl ?? new Date(Date.now() + 30 * 60 * 1000) },
       );
-      return walletCtx.wallet.finalizeRecipe(recipe);
+      const signed = await walletCtx.wallet.signRecipe(
+        recipe,
+        (data: Uint8Array) => walletCtx.unshieldedKeystore.signData(data),
+      );
+      return walletCtx.wallet.finalizeRecipe(signed);
     },
     submitTx: (tx: any) => walletCtx.wallet.submitTransaction(tx) as any,
   };

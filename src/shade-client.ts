@@ -1,4 +1,15 @@
 import * as crypto from 'node:crypto';
+import { persistentHash, CompactTypeBytes, CompactTypeVector } from '@midnight-ntwrk/compact-runtime';
+
+const AGENT_KEY_PREFIX = new Uint8Array([
+  115, 104, 97, 100, 101, 52, 48, 50, 58, 97, 103, 101, 110, 116, 45, 107,
+  101, 121, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]);
+
+// Must match the contract's `persistentHash<Vector<2, Bytes<32>>>` in
+// `shade402.compact` exactly — otherwise the JS-side agent key will differ
+// from the key the contract stores on-chain.
+const agentKeyType = new CompactTypeVector(2, new CompactTypeBytes(32));
 
 export interface ShadePrivateState {
   agentSecret: Uint8Array;
@@ -45,14 +56,7 @@ export class Shade402Client {
   }
 
   public static agentKey(agentSecret: Uint8Array): Uint8Array {
-    return new Uint8Array(
-      crypto.createHash('sha256')
-        .update(Buffer.concat([
-          Buffer.from('shade402:agent-key:v1'),
-          Buffer.from(agentSecret),
-        ]))
-        .digest(),
-    );
+    return persistentHash(agentKeyType as any, [AGENT_KEY_PREFIX, agentSecret]);
   }
 
   public getAgentKey(): Uint8Array {

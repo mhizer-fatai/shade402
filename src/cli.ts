@@ -16,7 +16,8 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment } from './network';
-import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
+import { createWallet, persistWalletState, waitForCoreSync, unshieldedToken, type WalletContext } from './wallet';
+import * as Rx from 'rxjs';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { Shade402Client, type ShadePrivateState } from './shade-client';
 import { createHash } from 'node:crypto';
@@ -73,14 +74,19 @@ async function createProviders(walletCtx: WalletContext) {
     getCoinPublicKey: () => walletCtx.shieldedSecretKeys.coinPublicKey,
     getEncryptionPublicKey: () => walletCtx.shieldedSecretKeys.encryptionPublicKey,
     async balanceTx(tx: any, ttl?: Date) {
-      // balanceUnboundTransaction -> finalizeRecipe is the complete balancing
-      // path in wallet-sdk 1.x; the earlier explicit signRecipe step is gone.
+      // balanceUnboundTransaction -> signRecipe -> finalizeRecipe. The
+      // explicit signRecipe step is required when spending unshielded inputs
+      // (deposits use receiveUnshielded); skipping it causes Custom error 192.
       const recipe = await walletCtx.wallet.balanceUnboundTransaction(
         tx,
         { shieldedSecretKeys: walletCtx.shieldedSecretKeys, dustSecretKey: walletCtx.dustSecretKey },
         { ttl: ttl ?? new Date(Date.now() + 30 * 60 * 1000) },
       );
-      return walletCtx.wallet.finalizeRecipe(recipe);
+      const signed = await walletCtx.wallet.signRecipe(
+        recipe,
+        (data: Uint8Array) => walletCtx.unshieldedKeystore.signData(data),
+      );
+      return walletCtx.wallet.finalizeRecipe(signed);
     },
     submitTx: (tx: any) => walletCtx.wallet.submitTransaction(tx) as any,
   };
@@ -138,7 +144,8 @@ async function main() {
       const elapsed = Math.round((Date.now() - syncStart) / 1000);
       process.stdout.write(`\r  ⏳ Still syncing... (${elapsed}s elapsed)   `);
     }, 5000);
-    const state = await walletCtx.wallet.waitForSyncedState();
+    await waitForCoreSync(walletCtx);
+    const state = await Rx.firstValueFrom(walletCtx.wallet.state());
     clearInterval(syncInterval);
     process.stdout.write('\r  ✓ Synced with network.                                      \n');
 
@@ -273,7 +280,7 @@ async function main() {
 
         case '5': {
           console.log('\n  Checking balance...');
-          const currentState = await walletCtx.wallet.waitForSyncedState();
+          const currentState = await Rx.firstValueFrom(walletCtx.wallet.state());
           const currentBalance = currentState.unshielded.balances[unshieldedToken().raw] ?? 0n;
           const dustBalance = currentState.dust.balance(new Date());
           console.log(`\n  tNight: ${currentBalance.toLocaleString()}`);

@@ -25,7 +25,7 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment, recordDeployment } from '../network.js';
-import { createWallet, persistWalletState, type WalletContext } from '../wallet.js';
+import { createWallet, persistWalletState, waitForCoreSync, type WalletContext } from '../wallet.js';
 import { Shade402Client, type ShadePrivateState, type InvoiceChallenge } from '../shade-client.js';
 import { findResource, handleMockResource } from './mock-provider.js';
 
@@ -81,7 +81,11 @@ async function createProviders(ctx: WalletContext) {
         { shieldedSecretKeys: ctx.shieldedSecretKeys, dustSecretKey: ctx.dustSecretKey },
         { ttl: ttl ?? new Date(Date.now() + 30 * 60 * 1000) },
       );
-      return ctx.wallet.finalizeRecipe(recipe);
+      const signed = await ctx.wallet.signRecipe(
+        recipe,
+        (data: Uint8Array) => ctx.unshieldedKeystore.signData(data),
+      );
+      return ctx.wallet.finalizeRecipe(signed);
     },
     submitTx: (tx: any) => ctx.wallet.submitTransaction(tx) as any,
   };
@@ -104,7 +108,7 @@ async function createProviders(ctx: WalletContext) {
 async function connect() {
   console.log(`Connecting to Shade402 on network: ${network}`);
   walletCtx = await createWallet({ network, networkConfig, seed: SEED });
-  await walletCtx.wallet.waitForSyncedState();
+  await waitForCoreSync(walletCtx);
   await persistWalletState(network, walletCtx);
 
   providers = await createProviders(walletCtx);
