@@ -20,8 +20,14 @@ async function main(): Promise<void> {
 
   process.stdout.write(`\n→ Setting up shade402-app on network: ${network}\n\n`);
 
-  // 1. Bring up only the services this network needs.
-  run('docker', ['compose', 'up', '-d', '--wait', ...config.composeServices]);
+  // 1. Bring up only the services this network needs. Public test networks
+  //    (preview/preprod) use hosted node/indexer/proof-server, so nothing
+  //    needs to run locally.
+  if (config.composeServices.length > 0) {
+    run('docker', ['compose', 'up', '-d', '--wait', ...config.composeServices]);
+  } else {
+    process.stdout.write('  Public network: no local services required.\n');
+  }
 
   // 2. Compile the contract (network-agnostic).
   run('npm', ['run', 'compile']);

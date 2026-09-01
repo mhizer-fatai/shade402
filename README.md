@@ -87,7 +87,14 @@ The backend also auto-deploys on first run if no deployment is on file.
 
 ## Networks
 
-The scaffold supports `undeployed` (local devnet), `preview`, and `preprod`. Use `--network preview` or `--network preprod` for public test networks. Never use the local genesis seed on a public network.
+The scaffold supports `undeployed` (local devnet), `preview`, and `preprod`. Use `--network preview` or `--network preprod` for public test networks.
+
+Public test networks use **hosted** node, indexer, and proof server — no local Docker is required:
+
+- Proof server (preview): `https://proof-server.preview.midnight.network`
+- Proof server (preprod): `https://proof-server.preprod.midnight.network`
+
+Never use the local genesis seed on a public network.
 
 ## Project Structure
 
