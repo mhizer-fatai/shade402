@@ -1,104 +1,118 @@
 # Shade402
 
-Shade402 is a privacy-preserving HTTP 402 payment facilitator for autonomous AI agents, built on Midnight. An agent can prove that it has enough private balance and remains within its configured allowance while the API provider receives a settlement bound to a specific invoice.
+Shade402 is a privacy-preserving HTTP 402 (x402) payment facilitator for autonomous AI agents, built on Midnight. An agent keeps a private balance and an owner-controlled spending policy, proves it is funded and within its rules inside a zero-knowledge proof, and the Shade402 contract pays any provider with an unshielded settlement. The agent's identity, balance, and spending history are not visible to the provider.
 
 ## Wave 1 Scope
 
-Wave 1 delivers the contract and CLI simulation layer:
+Wave 1 delivers a working full stack:
 
-- `contracts/shade402.compact` contains the Compact contract.
-- `src/shade-client.ts` models the agent's private balance, allowance, invoice binding, and single-use nullifiers.
-- `src/simulate-402.ts` demonstrates a deposit, invoice payment payload, and rejected unsafe payments.
-- `src/deploy.ts`, `src/cli.ts`, and `scripts/e2e-check.ts` use the compiled Shade402 contract.
-
-Wave 2 will add the reusable SDK and HTTP 402 provider middleware. Wave 3 will add the dashboard and delegated budget management.
+- **Compact contract** (`contracts/shade402.compact`) with real private-state management and the dual-ledger model:
+  - `registerAgent(dailyLimit, perPaymentLimit, periodEndsAt)` — owner registers an agent account with a spending policy.
+  - `deposit(amount)` — owner funds the agent's balance on the contract.
+  - `payInvoice(recipient, invoiceHash, amount)` — agent pays a provider: the contract checks balance, per-payment limit, daily limit, and invoice replay, then settles with `sendUnshielded`.
+- **TypeScript client** (`src/shade-client.ts`) that supplies the `localSecret` witness and derives agent keys and invoice hashes.
+- **Backend service** (`src/server/`) — an Express API that connects to the deployed contract and includes a **simulated x402 provider** that issues a `402 Payment Required` challenge and releases a protected resource once a settlement receipt is presented.
+- **React dashboard** (`web/`) — an owner UI to register the agent policy, deposit, pay an x402 service, and view the public settlement.
+- **Tests** (`tests/`) — unit tests for the client and the x402 provider flow, plus a simulation (`src/simulate-402.ts`).
 
 ## Privacy Design
 
-The agent keeps its balance, daily allowance, and secret witness material in private state. The Compact contract reads those values through witnesses and asserts:
+The agent's secret is a private witness value. The contract derives a dApp-specific agent key from it and stores policy (balance, limits, period) under that key on the public ledger — the key is unlinkable to any real identity. Every payment must prove, inside the ZK proof, that:
 
 1. The payment amount is positive.
-2. The private balance covers the invoice.
-3. The invoice is within the agent allowance.
-4. The settlement is bound to the recipient, invoice hash, and nullifier.
+2. The agent is registered.
+3. The invoice has not already been paid (replay protection).
+4. The agent's balance covers the amount.
+5. The payment is within the per-payment limit.
+6. The payment is within the rolling daily limit (`blockTimeGte` resets the period).
 
-The public ledger exposes aggregate settlement fields needed for verification, while the agent's balance and spending policy remain private. The TypeScript simulation also rejects expired invoices and reuses of a locally tracked nullifier.
+The **public** ledger shows aggregate settlement (deposits, settled totals, last invoice) and the per-agent policy keyed by the scrambled agent key. The **private** side — which real-world owner an agent key maps to, and the secret itself — never appears on-chain.
+
+## Architecture
+
+```text
+React dashboard (web/)
+      │  HTTP
+      ▼
+Backend service (src/server/) ─── simulated x402 provider
+      │  Midnight.js + wallet SDK
+      ▼
+Shade402 Compact contract on Midnight (preview/preprod)
+      │  sendUnshielded
+      ▼
+Provider receives settlement → releases the requested resource
+```
+
+- The agent never holds the owner's main wallet keys.
+- The contract is the payer of record, so the provider cannot link the settlement to the agent's identity.
+- Honest limit: with a single depositor, timing/amount correlation can still link payments — the same anonymity-set constraint as any pool-based privacy system. This is documented, not overclaimed.
 
 ## Requirements
 
 - Node.js 22+
-- Docker with Compose v2
-- Compact compiler matching the version used to generate `contracts/managed/shade402`
+- Compact compiler (generated artifacts for compiler 0.31.1 are committed under `contracts/managed/shade402/`)
+- A Midnight testnet wallet with tNIGHT (preview or preprod)
 
 ## Quick Start
 
 ```bash
 npm install
-npm run compile
 npm test
 ```
 
-`npm test` runs the deterministic Wave 1 simulation without requiring Docker or a funded wallet.
+`npm test` runs the simulation and the unit tests. It needs no blockchain.
 
-To run the local Midnight devnet and deploy the contract:
+To run the full stack against a deployed contract:
 
 ```bash
-npm run setup
-npm run test:e2e
-npm run cli
+npm run server      # backend on http://localhost:4000
+npm run web         # React dashboard on http://localhost:5173
 ```
 
-`npm run setup` starts the local devnet, compiles `contracts/shade402.compact`, registers DUST, and deploys the contract. `npm run test:e2e` reconnects to the deployed Shade402 contract and verifies that its state is indexed and queryable.
+## Deploying to a Midnight testnet
 
-## CLI Flow
-
-After deployment, `npm run cli` provides:
-
-1. Deposit into the pool.
-2. Pay an HTTP 402 invoice by entering its ID, recipient, and amount.
-3. Inspect the wallet's NIGHT and DUST balances.
-
-The current CLI uses the local witness client for the Wave 1 demonstration. The relayer and provider middleware are planned for Wave 2.
-
-## Contract Interface
-
-The contract exposes:
-
-- `deposit(amount, commitmentHash)` for pool deposits.
-- `payInvoice(recipient, invoiceHash, amount, nullifier)` for allowance-checked settlement.
-- `totalDeposited`, `totalSettledAmount`, `lastSettledInvoice`, and `nullifierRoot` as public ledger fields.
-
-The contract must compile successfully for a submission to pass the Buildathon technical gate:
+Compile the contract (done in Codespace / a modern Linux host; the artifacts are committed):
 
 ```bash
 npm run compile
 ```
 
-## Repository and License Requirements
+Deploy (uses the wallet configured in `.midnight-state.json`; fund it with tNIGHT and DUST first):
 
-The Midnight-related code in this repository is released under the Apache License 2.0. Add the `midnightntwrk` label/topic to the public GitHub repository before submission. The Wave 1 AKINDO submission should include this repository, a pitch deck, a demo video, and a short description of what was built during Wave 1.
+```bash
+npm run deploy -- --network preview
+```
+
+The backend also auto-deploys on first run if no deployment is on file.
 
 ## Networks
 
-The scaffold supports `undeployed` for the bundled local devnet, plus `preview` and `preprod`. Use `--network preview` or `--network preprod` with setup commands when working against a public test network. Never use the local genesis seed on a public network.
+The scaffold supports `undeployed` (local devnet), `preview`, and `preprod`. Use `--network preview` or `--network preprod` for public test networks. Never use the local genesis seed on a public network.
 
 ## Project Structure
 
 ```text
 shade402-app/
 ├── contracts/
-│   ├── shade402.compact
-│   └── managed/shade402/       # generated compiler output
-├── scripts/e2e-check.ts
+│   ├── shade402.compact          # Compact contract
+│   └── managed/shade402/         # generated artifacts (committed)
+├── scripts/e2e-check.ts          # on-chain smoke check
 ├── src/
-│   ├── shade-client.ts         # private-state simulation client
-│   ├── simulate-402.ts         # Wave 1 safety and payment simulation
-│   ├── deploy.ts
-│   ├── cli.ts
+│   ├── shade-client.ts           # witness + payload client
+│   ├── simulate-402.ts           # simulation
+│   ├── deploy.ts                 # testnet deployment
+│   ├── cli.ts                    # interactive CLI
+│   ├── server/
+│   │   ├── index.ts              # backend API + contract wiring
+│   │   └── mock-provider.ts      # simulated x402 provider
 │   ├── network.ts
 │   └── wallet.ts
-├── docker-compose.yml
+├── tests/                        # unit tests
+├── web/                          # React dashboard
 ├── package.json
 └── tsconfig.json
 ```
->>>>>>> 63db8e8 (Add Shade402 Wave 1 scaffold)
+
+## License
+
+Apache-2.0. This repository must be tagged with the `midnightntwrk` topic on GitHub for Buildathon eligibility.
