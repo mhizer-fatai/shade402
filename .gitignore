@@ -60,3 +60,6 @@ temp/
 
 # Midnight wallet sync state (per-network serialized wallet state cache)
 .midnight-wallet-state/
+
+# Midnight private-state provider local data
+midnight-level-db/

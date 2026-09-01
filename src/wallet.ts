@@ -5,6 +5,7 @@
 // this file is the glue between that format and the wallet SDK.
 
 import { Buffer } from 'buffer';
+import * as Rx from 'rxjs';
 
 // Ledger types now come from the midnight-js-protocol barrel, which re-exports
 // ledger-v8 (8.1.0) under a stable subpath instead of depending on it directly.
@@ -162,6 +163,39 @@ export async function createWallet(opts: CreateWalletOptions): Promise<WalletCon
   await wallet.start(shieldedSecretKeys, dustSecretKey);
 
   return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore, restored };
+}
+
+/**
+ * Wait for the wallet's shielded and unshielded channels to reach the chain
+ * tip. Deliberately does NOT wait on the DUST channel: on an idle or public
+ * chain the DUST wallet's progress often never reports `isStrictlyComplete()`,
+ * so blocking on it would hang forever (a documented Midnight wallet issue).
+ * DUST availability is instead polled separately before building transactions.
+ */
+export async function waitForCoreSync(ctx: WalletContext, timeoutMs = 2_700_000): Promise<void> {
+  const isStrictlyComplete = (p: unknown): boolean =>
+    typeof p === 'object' && p !== null && typeof (p as { isStrictlyComplete?: unknown }).isStrictlyComplete === 'function'
+      ? ((p as { isStrictlyComplete: () => boolean }).isStrictlyComplete())
+      : false;
+
+  await Rx.firstValueFrom(
+    ctx.wallet.state().pipe(
+      Rx.filter((s: any) => {
+        try {
+          const shieldedDone = isStrictlyComplete(s.shielded?.state?.progress);
+          const unshieldedDone = isStrictlyComplete(s.unshielded?.progress);
+          return shieldedDone && unshieldedDone;
+        } catch {
+          return false;
+        }
+      }),
+      Rx.timeout({
+        each: timeoutMs,
+        with: () =>
+          Rx.throwError(() => new Error(`Wallet core sync timed out after ${Math.round(timeoutMs / 1000)}s`)),
+      }),
+    ),
+  );
 }
 
 /**
