@@ -27,6 +27,7 @@ import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-j
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment, recordDeployment } from '../network.js';
 import { createWallet, persistWalletState, type WalletContext } from '../wallet.js';
 import { Shade402Client, type ShadePrivateState, type InvoiceChallenge } from '../shade-client.js';
+import { findResource, handleMockResource } from './mock-provider.js';
 
 // @ts-expect-error wallet sync requires WebSocket
 globalThis.WebSocket = WebSocket;
@@ -199,45 +200,16 @@ app.post('/api/agent/deposit', async (req, res) => {
 
 // ─── Simulated x402 provider ────────────────────────────────────────────────
 
-const RESOURCES = [
-  { path: '/api/data/flight-prices', price: 15n, data: { provider: 'midnight-airlines', prices: ['NYC->LON 499', 'LON->NYC 510'] } },
-  { path: '/api/data/market-data', price: 20n, data: { provider: 'midnight-quote', ticker: 'MNIGHT', price: '1.02' } },
-  { path: '/api/data/ai-inference', price: 30n, data: { provider: 'midnight-ai', model: 'shade-gpt', output: 'privacy-first answer' } },
-];
-
 // Simulated protected resource. Returns a 402 challenge unless the caller
 // presents a valid settlement receipt.
-app.get('/api/mock/resource', (req, res) => {
-  const resource = RESOURCES.find((r) => r.path === req.query.path) ?? RESOURCES[0];
-  const receipt = req.query.receipt as string | undefined;
-  const invoiceId = req.query.invoiceId as string | undefined;
-
-  if (receipt && invoiceId) {
-    // In a real x402 flow the provider verifies the on-chain settlement.
-    // Here we accept a settlement receipt that the payer obtains from the
-    // Shade402 contract payment.
-    res.json({ ok: true, resource: resource.data });
-    return;
-  }
-
-  res.status(402).json({
-    type: 'x402-payment-required',
-    invoice: {
-      id: `inv_${Date.now()}_${Math.floor(Math.random() * 1e9)}`,
-      amount: resource.price.toString(),
-      recipient: 'midnight_provider_example',
-      path: resource.path,
-      expiresAt: Math.floor(Date.now() / 1000) + 300,
-    },
-  });
-});
+app.get('/api/mock/resource', handleMockResource);
 
 // Pay a resource: builds an x402 challenge, generates the payload, calls the
 // contract, then returns a settlement receipt the client can pass back.
 app.post('/api/pay', async (req, res) => {
   try {
     const { resourcePath, recipient } = req.body ?? {};
-    const resource = RESOURCES.find((r) => r.path === resourcePath) ?? RESOURCES[0];
+    const resource = findResource(resourcePath ?? '');
     const amount = resource.price;
     const invoiceId = `inv_${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
     const challenge: InvoiceChallenge = {

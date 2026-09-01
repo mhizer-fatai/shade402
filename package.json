@@ -18,8 +18,9 @@
     "proof-server:start": "docker compose up -d",
     "proof-server:stop": "docker compose down",
     "clean": "rm -rf contracts/managed .midnight-state.json .midnight-wallet-state",
-    "test": "npm run test:simulation",
+    "test": "npm run test:simulation && npm run test:unit",
     "test:simulation": "tsx src/simulate-402.ts",
+    "test:unit": "tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e-check.ts",
     "simulate": "npx tsx src/simulate-402.ts"
   },
