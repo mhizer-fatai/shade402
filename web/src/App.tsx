@@ -2,6 +2,7 @@ import { useState } from 'react';
 import HomePage from './HomePage';
 import DashboardPage from './DashboardPage';
 import { useTheme } from './useTheme';
+import { useScrollProgress } from './useScrollFx';
 import { shortHash } from './api';
 
 function MoonIcon() {
@@ -27,6 +28,7 @@ export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [view, setView] = useState<View>('home');
   const [contract, setContract] = useState<string | null>(null);
+  const scrollProgress = useScrollProgress();
 
   // Lazily capture the contract address for the nav chip once we're in the dashboard.
   function handleLaunch() {
@@ -39,6 +41,11 @@ export default function App() {
 
   return (
     <div className="app">
+      {view === 'home' && (
+        <div className="scroll-progress" aria-hidden="true">
+          <div className="scroll-progress-fill" style={{ width: `${scrollProgress * 100}%` }} />
+        </div>
+      )}
       <nav className="nav">
         <div className="nav-inner">
           <button className="brand brand-button" onClick={() => setView('home')}>

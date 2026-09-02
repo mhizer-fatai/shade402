@@ -1,13 +1,16 @@
 import { shortHash } from './api';
+import { useRevealOnScroll } from './useScrollFx';
 
 const CONTRACT_ADDRESS = 'e7c3e36771afb67235d5edb11a587afffc9422cca4e06c3d0b8fea73a16fe1d7';
 
 export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
+  const containerRef = useRevealOnScroll();
+
   return (
-    <div className="landing">
+    <div className="landing" ref={containerRef}>
       {/* ── Hero ── */}
       <section className="hero">
-        <div className="hero-inner">
+        <div className="hero-inner reveal-stagger">
           <span className="hero-eyebrow">Built on Midnight · x402 payment standard</span>
           <h1 className="hero-title">
             AI agents pay for APIs.
@@ -40,16 +43,16 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── Problem ── */}
       <section className="landing-section">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">The problem</span>
-          <h2 className="section-heading">
+          <span className="section-eyebrow reveal">The problem</span>
+          <h2 className="section-heading reveal">
             Every payment an agent makes is a public receipt
           </h2>
-          <p className="section-paragraph">
+          <p className="section-paragraph reveal">
             Today, when an AI agent pays for an API, compute, or data, the transaction lands
             on a public ledger. Over hundreds of small calls, that becomes a permanent,
             linkable profile of what the agent does, how much it spends, and who owns it.
           </p>
-          <div className="grid-3">
+          <div className="grid-3 reveal-stagger">
             <div className="feature-card">
               <div className="feature-number">01</div>
               <h3 className="feature-title">Identity leakage</h3>
@@ -81,16 +84,16 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── x402 ecosystem stats ── */}
       <section className="landing-section alt">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">The x402 economy</span>
-          <h2 className="section-heading">
+          <span className="section-eyebrow reveal">The x402 economy</span>
+          <h2 className="section-heading reveal">
             Machine payments are exploding — on fully public rails
           </h2>
-          <p className="section-paragraph">
+          <p className="section-paragraph reveal">
             The x402 standard made HTTP-native payments real. But virtually all of that
             activity settles on transparent chains, where every agent payment is visible
             to anyone, forever.
           </p>
-          <div className="stats-row">
+          <div className="stats-row reveal-stagger">
             <div className="stat-card">
               <div className="stat-label">x402 transactions settled</div>
               <div className="stat-value">165M+</div>
@@ -111,7 +114,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
             </div>
           </div>
 
-          <div className="tracked-panel">
+          <div className="tracked-panel reveal reveal-left">
             <div className="tracked-head">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -138,18 +141,18 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── Solution ── */}
       <section className="landing-section">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">The solution</span>
-          <h2 className="section-heading">
+          <span className="section-eyebrow reveal">The solution</span>
+          <h2 className="section-heading reveal">
             A private spending account your agent can't outsmart
           </h2>
-          <p className="section-paragraph">
+          <p className="section-paragraph reveal">
             Shade402 turns agent payments into a zero-knowledge workflow. The owner funds a
             private agent account and sets an on-chain spending policy. Every payment must
             prove — without revealing anything — that it is funded and within policy. The
             Shade402 contract is the visible payer, so providers never learn who is really
             paying.
           </p>
-          <div className="privacy-split">
+          <div className="privacy-split reveal-stagger">
             <div className="privacy-col">
               <div className="privacy-head private">
                 <h3 className="privacy-title">Stays private</h3>
@@ -179,9 +182,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── How it works ── */}
       <section className="landing-section alt" id="how-it-works">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">How it works</span>
-          <h2 className="section-heading">From 402 challenge to private settlement</h2>
-          <div className="steps">
+          <span className="section-eyebrow reveal">How it works</span>
+          <h2 className="section-heading reveal">From 402 challenge to private settlement</h2>
+          <div className="steps reveal-stagger">
             <div className="step">
               <div className="step-marker">1</div>
               <div className="step-body">
@@ -251,9 +254,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── How to use ── */}
       <section className="landing-section">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">How to use it</span>
-          <h2 className="section-heading">Try the full flow in under two minutes</h2>
-          <div className="steps vertical">
+          <span className="section-eyebrow reveal">How to use it</span>
+          <h2 className="section-heading reveal">Try the full flow in under two minutes</h2>
+          <div className="steps vertical reveal-stagger">
             <div className="step">
               <div className="step-marker">1</div>
               <div className="step-body">
@@ -307,9 +310,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       {/* ── Architecture ── */}
       <section className="landing-section alt">
         <div className="landing-section-inner">
-          <span className="section-eyebrow">Under the hood</span>
-          <h2 className="section-heading">Built native on Midnight</h2>
-          <div className="grid-3">
+          <span className="section-eyebrow reveal">Under the hood</span>
+          <h2 className="section-heading reveal">Built native on Midnight</h2>
+          <div className="grid-3 reveal-stagger">
             <div className="feature-card">
               <div className="feature-number">A</div>
               <h3 className="feature-title">Compact smart contract</h3>
@@ -338,7 +341,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               </p>
             </div>
           </div>
-          <p className="honest-note">
+          <p className="honest-note reveal">
             Honest limits: payments, amounts, and providers are public by design, and
             payer-provider unlinkability depends on the size of the agent pool — the same
             anonymity-set trade-off as any pool-based privacy system. Live on Midnight
