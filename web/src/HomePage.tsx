@@ -1,16 +1,8 @@
-import { useState, useEffect } from 'react';
-import type { StatsInfo } from './api';
-import { api, shortHash } from './api';
+import { shortHash } from './api';
+
+const CONTRACT_ADDRESS = 'e7c3e36771afb67235d5edb11a587afffc9422cca4e06c3d0b8fea73a16fe1d7';
 
 export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
-  const [stats, setStats] = useState<StatsInfo | null>(null);
-
-  useEffect(() => {
-    api<StatsInfo>('/api/stats')
-      .then(setStats)
-      .catch(() => setStats(null));
-  }, []);
-
   return (
     <div className="landing">
       {/* ── Hero ── */}
@@ -86,8 +78,65 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
         </div>
       </section>
 
-      {/* ── Solution ── */}
+      {/* ── x402 ecosystem stats ── */}
       <section className="landing-section alt">
+        <div className="landing-section-inner">
+          <span className="section-eyebrow">The x402 economy</span>
+          <h2 className="section-heading">
+            Machine payments are exploding — on fully public rails
+          </h2>
+          <p className="section-paragraph">
+            The x402 standard made HTTP-native payments real. But virtually all of that
+            activity settles on transparent chains, where every agent payment is visible
+            to anyone, forever.
+          </p>
+          <div className="stats-row">
+            <div className="stat-card">
+              <div className="stat-label">x402 transactions settled</div>
+              <div className="stat-value">165M+</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Cumulative volume</div>
+              <div className="stat-value">
+                $50M<span className="stat-unit">+</span>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Active AI agents</div>
+              <div className="stat-value">69,000+</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Settling on Base</div>
+              <div className="stat-value">85%</div>
+            </div>
+          </div>
+
+          <div className="tracked-panel">
+            <div className="tracked-head">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <h3 className="tracked-title">It is already being tracked</h3>
+            </div>
+            <p className="tracked-body">
+              Blockchain analysts at Chainalysis publicly profiled x402 agent payments on
+              Base — reconstructing what agents pay for, how often, and in what sizes, and
+              classifying roughly half of all activity as gamified speculation. None of
+              those agents were hacked or compromised. Their payment trails were simply
+              public, so anyone could read them. If analysts can do it for research,
+              competitors can do it to you.
+            </p>
+            <p className="tracked-source">
+              Sources: Chainalysis x402 adoption analysis (June 2026); Coinbase Agent.market
+              launch figures (April 2026).
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Solution ── */}
+      <section className="landing-section">
         <div className="landing-section-inner">
           <span className="section-eyebrow">The solution</span>
           <h2 className="section-heading">
@@ -128,7 +177,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
       </section>
 
       {/* ── How it works ── */}
-      <section className="landing-section" id="how-it-works">
+      <section className="landing-section alt" id="how-it-works">
         <div className="landing-section-inner">
           <span className="section-eyebrow">How it works</span>
           <h2 className="section-heading">From 402 challenge to private settlement</h2>
@@ -196,47 +245,6 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* ── Live x402 stats ── */}
-      <section className="landing-section alt">
-        <div className="landing-section-inner">
-          <span className="section-eyebrow">Live protocol stats</span>
-          <h2 className="section-heading">Real numbers from the deployed contract</h2>
-          <p className="section-paragraph">
-            These figures are read directly from the Shade402 contract's public ledger on
-            the Midnight {stats?.network ?? 'Preview'} testnet — not mock data.
-          </p>
-          <div className="stats-row">
-            <div className="stat-card">
-              <div className="stat-label">Registered agents</div>
-              <div className="stat-value">{stats?.registeredAgents ?? '—'}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Total deposited</div>
-              <div className="stat-value">
-                {stats?.totalDeposited ?? '—'}
-                <span className="stat-unit">tNIGHT</span>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Total settled</div>
-              <div className="stat-value">
-                {stats?.totalSettled ?? '—'}
-                <span className="stat-unit">tNIGHT</span>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Invoices settled</div>
-              <div className="stat-value">{stats?.invoicesSettled ?? '—'}</div>
-            </div>
-          </div>
-          {stats?.contractAddress && (
-            <p className="contract-line mono">
-              contract {shortHash(stats.contractAddress, 12, 8)} · {stats.network}
-            </p>
-          )}
         </div>
       </section>
 
@@ -333,7 +341,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
           <p className="honest-note">
             Honest limits: payments, amounts, and providers are public by design, and
             payer-provider unlinkability depends on the size of the agent pool — the same
-            anonymity-set trade-off as any pool-based privacy system.
+            anonymity-set trade-off as any pool-based privacy system. Live on Midnight
+            Preview: contract {shortHash(CONTRACT_ADDRESS, 10, 8)}.
           </p>
         </div>
       </section>
