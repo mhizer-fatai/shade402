@@ -106,8 +106,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="stat-value">69,000+</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">Settling on Base</div>
-              <div className="stat-value">85%</div>
+              <div className="stat-label">Avg. payment visible to anyone</div>
+              <div className="stat-value">100%</div>
             </div>
           </div>
 
@@ -120,8 +120,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <h3 className="tracked-title">It is already being tracked</h3>
             </div>
             <p className="tracked-body">
-              Blockchain analysts at Chainalysis publicly profiled x402 agent payments on
-              Base — reconstructing what agents pay for, how often, and in what sizes, and
+              Blockchain analysts at Chainalysis publicly profiled x402 agent payments —
+              reconstructing what agents pay for, how often, and in what sizes, and
               classifying roughly half of all activity as gamified speculation. None of
               those agents were hacked or compromised. Their payment trails were simply
               public, so anyone could read them. If analysts can do it for research,
