@@ -232,6 +232,7 @@ app.post('/api/pay', async (req, res) => {
       ok: true,
       invoiceId,
       txId: tx.public.txId,
+      amount: amount.toString(),
       blockHeight: tx.public.blockHeight,
       invoiceHash: Buffer.from(payload.invoiceHash).toString('hex'),
       receipt: `${tx.public.txId}:${invoiceId}`,
