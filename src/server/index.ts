@@ -154,6 +154,26 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, network, contractAddress: getDeployment(network)?.address ?? null });
 });
 
+// Live protocol stats read straight from the contract's public ledger.
+app.get('/api/stats', async (_req, res) => {
+  try {
+    const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
+    if (!state) return res.status(404).json({ error: 'No contract state' });
+    const l = ledger(state.data);
+    res.json({
+      network,
+      contractAddress: deploymentAddress(),
+      registeredAgents: l.agents.size().toString(),
+      totalDeposited: l.totalDeposited.toString(),
+      totalSettled: l.totalSettledAmount.toString(),
+      invoicesSettled: l.usedInvoices.size().toString(),
+      lastSettledInvoice: Buffer.from(l.lastSettledInvoice).toString('hex'),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
 app.get('/api/agent', async (_req, res) => {
   try {
     const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
