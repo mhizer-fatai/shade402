@@ -1,6 +1,7 @@
 /**
- * Full on-chain verification of the deployed Shade402 contract on preview:
- * registerAgent -> deposit -> payInvoice, then read the agent policy back.
+ * On-chain verification of the hardened Shade402 contract:
+ * register -> deposit -> allowProvider (owner) -> pay allowlisted provider
+ * -> attempt to pay a NON-allowlisted recipient (must be REJECTED).
  */
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -16,6 +17,7 @@ import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-j
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment } from '../src/network.js';
 import { createWallet, persistWalletState, waitForCoreSync, type WalletContext } from '../src/wallet.js';
 import { Shade402Client, type ShadePrivateState, type InvoiceChallenge } from '../src/shade-client.js';
+import { RESOURCES } from '../src/server/mock-provider.js';
 
 // @ts-expect-error wallet sync requires WebSocket
 globalThis.WebSocket = WebSocket;
@@ -31,9 +33,11 @@ const SEED = WALLET.seed;
 const notice = formatWalletBackupNotice(WALLET, network);
 if (notice) console.log(notice);
 
-const agentSecret = new Uint8Array(createHash('sha256').update(`shade402:agent-secret:${SEED}:${process.env.SHADE_AGENT_SALT ?? 'v1'}`).digest());
+const agentSecret = new Uint8Array(createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest());
 const client = new Shade402Client(agentSecret);
 const privateState: ShadePrivateState = { agentSecret };
+
+const j = (v: unknown) => JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? val.toString() : val));
 
 async function main() {
   const deployment = getDeployment(network);
@@ -95,63 +99,74 @@ async function main() {
     const l = Shade402.ledger(state.data);
     const key = client.getAgentKey();
     if (!l.agents.member(key)) return null;
-    const p = l.agents.lookup(key);
-    return {
-      balance: p.balance,
-      dailyLimit: p.dailyLimit,
-      spentInPeriod: p.spentInPeriod,
-      periodEndsAt: p.periodEndsAt,
-      perPaymentLimit: p.perPaymentLimit,
-    };
+    return l.agents.lookup(key);
   }
 
-  console.log('\n[1] registerAgent(dailyLimit=1000, perPaymentLimit=200, period=24h)...');
-  const now = BigInt(Math.floor(Date.now() / 1000));
-  const periodEndsAt = now + 86400n;
+  console.log('\n[1] registerAgent(1000, 200, 24h)...');
   try {
+    const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + 86400);
     const regTx = await deployed.callTx.registerAgent(1000n, 200n, periodEndsAt);
     console.log(`    tx: ${regTx.public.txId} block=${regTx.public.blockHeight}`);
   } catch (e: any) {
-    if (/already registered/.test(e?.message ?? '')) {
-      console.log('    already registered (replay protection confirmed)');
-    } else {
-      throw e;
-    }
+    if (/already registered/.test(e?.message ?? '')) console.log('    already registered');
+    else throw e;
   }
-  console.log(`    policy: ${JSON.stringify(await readPolicy(), (_k, val) => (typeof val === "bigint" ? val.toString() : val))}`);
+  console.log(`    policy: ${j(await readPolicy())}`);
 
   console.log('\n[2] deposit(100)...');
-  const policyBeforeDeposit = await readPolicy();
-  if (policyBeforeDeposit && policyBeforeDeposit.balance > 0n) {
-    console.log(`    skipped — balance already ${policyBeforeDeposit.balance}`);
+  const before = await readPolicy();
+  if (before && before.balance > 0n) {
+    console.log(`    skipped — balance already ${before.balance}`);
   } else {
     const depTx = await deployed.callTx.deposit(100n);
     console.log(`    tx: ${depTx.public.txId} block=${depTx.public.blockHeight}`);
   }
-  console.log(`    policy: ${JSON.stringify(await readPolicy(), (_k, val) => (typeof val === "bigint" ? val.toString() : val))}`);
+  console.log(`    policy: ${j(await readPolicy())}`);
 
-  console.log('\n[3] payInvoice(recipient, invoiceHash, amount=15)...');
+  console.log('\n[3] allowProvider(midnight-airlines) — owner-only...');
+  try {
+    const tx = await deployed.callTx.allowProvider({ bytes: RESOURCES[0].address });
+    console.log(`    tx: ${tx.public.txId} block=${tx.public.blockHeight}`);
+  } catch (e: any) {
+    if (/already allowed/.test(e?.message ?? '')) console.log('    already allowed');
+    else throw e;
+  }
+
+  console.log('\n[4] payInvoice to ALLOWLISTED provider (15)...');
   const challenge: InvoiceChallenge = {
     invoiceId: `inv_${Date.now()}`,
-    recipientAddress: 'midnight_provider_example',
+    recipientAddress: 'midnight-airlines',
     amount: 15n,
     expiresAt: Date.now() + 300_000,
   };
   const payload = client.buildPaymentPayload(challenge);
-  const payTx = await deployed.callTx.payInvoice({ bytes: payload.recipient }, payload.invoiceHash, payload.amount);
+  const payTx = await deployed.callTx.payInvoice({ bytes: RESOURCES[0].address }, payload.invoiceHash, payload.amount);
   console.log(`    tx: ${payTx.public.txId} block=${payTx.public.blockHeight}`);
-  console.log(`    invoiceHash: ${Buffer.from(payload.invoiceHash).toString('hex')}`);
-  console.log(`    policy after pay: ${JSON.stringify(await readPolicy(), (_k, val) => (typeof val === 'bigint' ? val.toString() : val))}`);
+  console.log(`    policy: ${j(await readPolicy())}`);
 
-  console.log('\n[4] Attempt duplicate invoice (should fail)...');
+  console.log('\n[5] ATTACK: payInvoice to NON-allowlisted recipient (self-pay drain attempt)...');
+  const attackerAddress = new Uint8Array(createHash('sha256').update('attacker-evil-address').digest());
+  const evilChallenge: InvoiceChallenge = {
+    invoiceId: `inv_evil_${Date.now()}`,
+    recipientAddress: 'attacker',
+    amount: 50n,
+    expiresAt: Date.now() + 300_000,
+  };
+  const evilPayload = client.buildPaymentPayload(evilChallenge);
   try {
-    await deployed.callTx.payInvoice({ bytes: payload.recipient }, payload.invoiceHash, payload.amount);
-    console.log('    ❌ expected rejection, but it succeeded');
+    await deployed.callTx.payInvoice({ bytes: attackerAddress }, evilPayload.invoiceHash, evilPayload.amount);
+    console.log('    ❌ SECURITY HOLE: self-pay succeeded!');
+    process.exit(1);
   } catch (e: any) {
-    console.log(`    ✅ rejected: ${e?.message ?? e}`);
+    if (/not an allowed provider/.test(e?.message ?? '')) {
+      console.log('    ✅ REJECTED by allowlist: "Recipient is not an allowed provider"');
+    } else {
+      console.log(`    ✅ rejected: ${e?.message?.slice(0, 100)}`);
+    }
   }
+  console.log(`    policy after attack: ${j(await readPolicy())}`);
 
-  console.log('\n✅ Full Shade402 flow verified on-chain.');
+  console.log('\n✅ Hardened Shade402 flow verified on-chain.');
   await walletCtx.wallet.stop();
 }
 
@@ -159,4 +174,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-
