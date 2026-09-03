@@ -40,13 +40,25 @@ export interface MockResourceResult {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = window.localStorage.getItem('shade402-api-token') ?? '';
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     ...init,
   });
   const json = await res.json();
   if (!res.ok) throw new Error((json as any).error ?? `Request failed: ${res.status}`);
   return json as T;
+}
+
+export function setApiToken(token: string) {
+  window.localStorage.setItem('shade402-api-token', token.trim());
+}
+
+export function getApiToken(): string {
+  return window.localStorage.getItem('shade402-api-token') ?? '';
 }
 
 export function shortHash(hash: string, head = 10, tail = 6): string {

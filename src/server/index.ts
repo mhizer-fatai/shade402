@@ -42,6 +42,19 @@ const PRIVATE_STATE_ID = 'shade402PrivateState';
 const { network, config: networkConfig } = resolveNetwork();
 const WALLET = getOrCreateWallet(network);
 const SEED = WALLET.seed;
+
+// API bearer token. If SHADE_API_TOKEN is unset, a random per-run token is
+// generated and printed once at startup so the local demo keeps working
+// without configuration, while the API is still never left unauthenticated.
+const API_TOKEN = process.env.SHADE_API_TOKEN ?? createHash('sha256')
+  .update(`shade402:api-token:${SEED}:${Date.now()}:${Math.random()}`)
+  .digest('hex');
+
+const ALLOWED_ORIGINS = (process.env.SHADE_ALLOWED_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 {
   const notice = formatWalletBackupNotice(WALLET, network);
   if (notice) console.log(notice);
@@ -147,8 +160,29 @@ function deploymentAddress(): string {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 const app = express();
-app.use(cors());
+// CORS is restricted to the dashboard origins. Never open (`cors()` alone
+// would let any website on the internet drive this API and the wallet).
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Allow non-browser tools (curl, server-to-server) which send no Origin.
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+  }),
+);
 app.use(express.json());
+
+// Bearer-token authentication for every mutating endpoint.
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (token !== API_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, network, contractAddress: getDeployment(network)?.address ?? null });
@@ -198,27 +232,41 @@ app.get('/api/agent', async (_req, res) => {
   }
 });
 
-app.post('/api/agent/register', async (req, res) => {
+app.post('/api/agent/register', requireAuth, async (req, res) => {
   try {
     const { dailyLimit, perPaymentLimit, periodHours } = req.body ?? {};
     const dl = BigInt(dailyLimit);
     const pl = BigInt(perPaymentLimit);
+    if (dl <= 0n || pl <= 0n || pl > dl) {
+      return res.status(400).json({ error: 'Limits must be positive, and per-payment must not exceed daily' });
+    }
     const hours = Number(periodHours ?? 24);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) {
+      return res.status(400).json({ error: 'periodHours must be between 1 and 720' });
+    }
     const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + hours * 3600);
     const tx = await deployed.callTx.registerAgent(dl, pl, periodEndsAt);
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message ?? String(e) });
+  } catch {
+    res.status(500).json({ error: 'Failed to register agent' });
   }
 });
 
-app.post('/api/agent/deposit', async (req, res) => {
+app.post('/api/agent/deposit', requireAuth, async (req, res) => {
   try {
-    const amount = BigInt(req.body?.amount);
+    let amount: bigint;
+    try {
+      amount = BigInt(req.body?.amount);
+    } catch {
+      return res.status(400).json({ error: 'amount must be an integer string' });
+    }
+    if (amount <= 0n || amount > 1_000_000_000n) {
+      return res.status(400).json({ error: 'amount must be between 1 and 1000000000' });
+    }
     const tx = await deployed.callTx.deposit(amount);
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight, amount: amount.toString() });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message ?? String(e) });
+  } catch {
+    res.status(500).json({ error: 'Failed to deposit' });
   }
 });
 
@@ -230,15 +278,18 @@ app.get('/api/mock/resource', handleMockResource);
 
 // Pay a resource: builds an x402 challenge, generates the payload, calls the
 // contract, then returns a settlement receipt the client can pass back.
-app.post('/api/pay', async (req, res) => {
+app.post('/api/pay', requireAuth, async (req, res) => {
   try {
-    const { resourcePath, recipient } = req.body ?? {};
+    const { resourcePath } = req.body ?? {};
     const resource = findResource(resourcePath ?? '');
     const amount = resource.price;
     const invoiceId = `inv_${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
+    // Recipient is derived from the (server-side) resource definition — it is
+    // never accepted from the caller, so a request can never redirect funds
+    // to an arbitrary address.
     const challenge: InvoiceChallenge = {
       invoiceId,
-      recipientAddress: recipient ?? resource.data.provider,
+      recipientAddress: String(resource.data.provider),
       amount,
       expiresAt: Date.now() + 300_000,
     };
@@ -257,8 +308,8 @@ app.post('/api/pay', async (req, res) => {
       invoiceHash: Buffer.from(payload.invoiceHash).toString('hex'),
       receipt: `${tx.public.txId}:${invoiceId}`,
     });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message ?? String(e) });
+  } catch {
+    res.status(500).json({ error: 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
   }
 });
 
@@ -266,6 +317,11 @@ async function main() {
   await connect();
   app.listen(PORT, () => {
     console.log(`Shade402 backend listening on http://localhost:${PORT}`);
+    console.log(`  CORS origins: ${ALLOWED_ORIGINS.join(', ')}`);
+    console.log(`  API token (send as "Authorization: Bearer <token>"): ${API_TOKEN}`);
+    if (!process.env.SHADE_API_TOKEN) {
+      console.log('  (token is random per run — set SHADE_API_TOKEN to pin it)');
+    }
   });
 }
 

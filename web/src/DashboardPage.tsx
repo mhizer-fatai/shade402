@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { AgentInfo, HealthInfo, PayResult, MockResourceResult } from './api';
-import { api, shortHash } from './api';
+import { api, shortHash, setApiToken, getApiToken } from './api';
 
 const RESOURCES = [
   { path: '/api/data/flight-prices', label: 'Flight prices', price: '15' },
@@ -13,6 +13,8 @@ export default function DashboardPage() {
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [authed, setAuthed] = useState<boolean>(() => getApiToken() !== '');
+  const [tokenInput, setTokenInput] = useState('');
   const [payments, setPayments] = useState<
     { invoiceId: string; txId: string; amount: string; recipient: string; time: string }[]
   >([]);
@@ -109,6 +111,41 @@ export default function DashboardPage() {
 
   return (
     <main className="main">
+      {!authed && (
+        <div className="table-card" style={{ padding: 24, marginBottom: 24 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Connect to backend
+          </h2>
+          <p className="page-subtitle" style={{ marginBottom: 16 }}>
+            Paste the API token printed by the backend at startup
+            (SHADE_API_TOKEN, or the per-run token in the server console).
+          </p>
+          <div className="form-grid">
+            <div className="field">
+              <label>API token</label>
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="Paste token from server console"
+              />
+            </div>
+            <div className="field" style={{ justifyContent: 'flex-end' }}>
+              <label>&nbsp;</label>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setApiToken(tokenInput);
+                  setAuthed(tokenInput.trim() !== '');
+                }}
+              >
+                Save token
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="error-banner">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
