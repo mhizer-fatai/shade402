@@ -12,17 +12,38 @@ struct AgentPolicy {
 
 export ledger agents: Map<Bytes<32>, AgentPolicy>;
 export ledger usedInvoices: Set<Bytes<32>>;
+export ledger allowedProviders: Set<UserAddress>;
+export sealed ledger owner: Bytes<32>;
 export ledger lastSettledInvoice: Bytes<32>;
 export ledger totalSettledAmount: Uint<64>;
 export ledger totalDeposited: Uint<64>;
 
 witness localSecret(): Bytes<32>;
 
+// Sealed at deployment: the owner key derived from the deployer's secret.
+// Only the deployer can ever manage providers or withdraw funds.
+constructor() {
+    owner = ownerKey();
+}
+
 circuit agentKey(): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
         pad(32, "shade402:agent-key:v1"),
         localSecret()
     ]);
+}
+
+// Owner key derived from the same secret but a different domain, so the
+// owner's authorization key is distinct from the agent's spending key.
+circuit ownerKey(): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([
+        pad(32, "shade402:owner-key:v1"),
+        localSecret()
+    ]);
+}
+
+circuit requireOwner(): [] {
+    assert(owner == disclose(ownerKey()), "Only the owner can call this circuit");
 }
 
 circuit currentPeriodSpent(account: AgentPolicy): Uint<64> {
@@ -60,6 +81,21 @@ export circuit registerAgent(
     });
 }
 
+// Owner-only: allow a provider address to receive payments. Agents can only
+// ever pay allowlisted providers, which closes the self-pay drain.
+export circuit allowProvider(provider: UserAddress): [] {
+    requireOwner();
+    assert(!allowedProviders.member(disclose(provider)), "Provider already allowed");
+    allowedProviders.insert(disclose(provider));
+}
+
+// Owner-only: remove a provider from the allowlist.
+export circuit revokeProvider(provider: UserAddress): [] {
+    requireOwner();
+    assert(allowedProviders.member(disclose(provider)), "Provider not in allowlist");
+    allowedProviders.remove(disclose(provider));
+}
+
 export circuit deposit(amount: Uint<64>): [] {
     const key = disclose(agentKey());
     assert(agents.member(key), "Agent is not registered");
@@ -77,6 +113,19 @@ export circuit deposit(amount: Uint<64>): [] {
     totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
 }
 
+// Owner-only: withdraw contract funds back to the owner's address. Escape
+// hatch so deposited funds are never locked in the contract.
+export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
+    requireOwner();
+    assert(amount > 0, "Withdrawal amount must be positive");
+    assert(unshieldedBalanceGte(nativeToken(), disclose(amount) as Uint<128>), "Insufficient contract balance");
+    sendUnshielded(
+        nativeToken(),
+        disclose(amount) as Uint<128>,
+        right<ContractAddress, UserAddress>(disclose(destination))
+    );
+}
+
 export circuit payInvoice(
     recipient: UserAddress,
     invoiceHash: Bytes<32>,
@@ -85,6 +134,9 @@ export circuit payInvoice(
     const key = disclose(agentKey());
     assert(agents.member(key), "Agent is not registered");
     assert(amount > 0, "Payment amount must be positive");
+    // Only owner-approved providers can ever be paid — an agent cannot
+    // redirect funds to itself or an arbitrary address.
+    assert(allowedProviders.member(disclose(recipient)), "Recipient is not an allowed provider");
 
     const account = agents.lookup(key);
     assert(!usedInvoices.member(disclose(invoiceHash)), "Invoice has already been paid");
