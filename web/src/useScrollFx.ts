@@ -11,7 +11,9 @@ export function useRevealOnScroll(): RefObject<HTMLDivElement> {
 
   useEffect(() => {
     const root = containerRef.current ?? document.body;
-    const targets = root.querySelectorAll<HTMLElement>('.reveal');
+    // Watch BOTH single reveals and stagger containers. Missing
+    // `.reveal-stagger` here previously left those sections invisible.
+    const targets = root.querySelectorAll<HTMLElement>('.reveal, .reveal-stagger');
 
     if (typeof IntersectionObserver === 'undefined') {
       targets.forEach((el) => el.classList.add('revealed'));
@@ -27,11 +29,21 @@ export function useRevealOnScroll(): RefObject<HTMLDivElement> {
           }
         }
       },
-      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' },
     );
 
     targets.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+
+    // Safety net: anything already in view (or if the observer never fires)
+    // becomes visible shortly after mount so content is never stuck hidden.
+    const fallback = window.setTimeout(() => {
+      targets.forEach((el) => el.classList.add('revealed'));
+    }, 1200);
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(fallback);
+    };
   }, []);
 
   return containerRef;

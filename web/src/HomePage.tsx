@@ -10,7 +10,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
     <div className="landing" ref={containerRef}>
       {/* ── Hero ── */}
       <section className="hero">
-        <div className="hero-inner reveal-stagger">
+        <div className="hero-inner reveal-stagger revealed">
           <span className="hero-eyebrow">Built on Midnight · x402 payment standard</span>
           <h1 className="hero-title">
             AI agents pay for APIs.
