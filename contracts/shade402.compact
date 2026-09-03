@@ -23,7 +23,7 @@ witness localSecret(): Bytes<32>;
 // Sealed at deployment: the owner key derived from the deployer's secret.
 // Only the deployer can ever manage providers or withdraw funds.
 constructor() {
-    owner = ownerKey();
+    owner = disclose(ownerKey());
 }
 
 circuit agentKey(): Bytes<32> {
