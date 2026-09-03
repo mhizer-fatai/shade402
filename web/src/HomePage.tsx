@@ -155,24 +155,24 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
           <div className="privacy-split reveal-stagger">
             <div className="privacy-col">
               <div className="privacy-head private">
-                <h3 className="privacy-title">Stays private</h3>
+                <h3 className="privacy-title">Off-chain / hidden</h3>
               </div>
               <ul className="privacy-list">
-                <li>Agent identity and owner</li>
-                <li>Agent balance</li>
-                <li>Daily and per-payment limits</li>
-                <li>Which agent made which payment</li>
+                <li>The agent's secret (private witness)</li>
+                <li>Which real-world owner an agent key maps to</li>
+                <li>The link between on-chain keys and identities</li>
+                <li>Nothing about who is behind a payment enters the proof</li>
               </ul>
             </div>
             <div className="privacy-col">
               <div className="privacy-head public">
-                <h3 className="privacy-title">Verifiable on-chain</h3>
+                <h3 className="privacy-title">On-chain / verifiable</h3>
               </div>
               <ul className="privacy-list">
-                <li>A payment was authorized correctly</li>
-                <li>The provider was paid (amount, invoice)</li>
+                <li>Payments, amounts, and providers (by design)</li>
+                <li>Policy amounts under pseudonymous agent keys</li>
+                <li>That every payment was authorized within policy</li>
                 <li>No invoice is paid twice</li>
-                <li>Contract-level totals and receipts</li>
               </ul>
             </div>
           </div>
@@ -327,9 +327,11 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="feature-number">B</div>
               <h3 className="feature-title">Dual-ledger privacy</h3>
               <p className="feature-body">
-                Balances and policies live in private state behind a scrambled agent key.
-                Settlements happen on the public ledger. Zero-knowledge proofs bridge the
-                two without leaking data.
+                Balances and policies are recorded under a scrambled agent key
+                derived from a private secret — the key is unlinkable to any
+                identity, and the secret never appears on-chain. Settlements
+                happen on the public ledger, and zero-knowledge proofs carry
+                the authorization logic between the two.
               </p>
             </div>
             <div className="feature-card">
