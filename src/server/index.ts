@@ -27,7 +27,7 @@ import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-j
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment, recordDeployment } from '../network.js';
 import { createWallet, persistWalletState, waitForCoreSync, type WalletContext } from '../wallet.js';
 import { Shade402Client, type ShadePrivateState, type InvoiceChallenge } from '../shade-client.js';
-import { findResource, handleMockResource } from './mock-provider.js';
+import { findResource, handleMockResource, RESOURCES } from './mock-provider.js';
 
 // @ts-expect-error wallet sync requires WebSocket
 globalThis.WebSocket = WebSocket;
@@ -147,6 +147,18 @@ async function connect() {
     recordDeployment(network, address, walletCtx.unshieldedKeystore.getBech32Address().toString());
     deployed = result;
     console.log(`Deployed Shade402: ${address}`);
+
+    // Fresh deployment: allowlist the demo providers so payments can flow.
+    // (The deployer's witness is the owner, so these owner-only calls succeed.)
+    console.log('Allowlisting demo providers...');
+    for (const resource of RESOURCES) {
+      try {
+        await deployed.callTx.allowProvider({ bytes: resource.address });
+        console.log(`  allowed: ${resource.data.provider}`);
+      } catch (e: any) {
+        console.log(`  skip ${resource.data.provider}: ${e?.message ?? e}`);
+      }
+    }
   }
   return deployed;
 }
@@ -270,6 +282,43 @@ app.post('/api/agent/deposit', requireAuth, async (req, res) => {
   }
 });
 
+// Owner-only: withdraw contract funds back to the owner's wallet address.
+app.post('/api/owner/withdraw', requireAuth, async (req, res) => {
+  try {
+    let amount: bigint;
+    try {
+      amount = BigInt(req.body?.amount);
+    } catch {
+      return res.status(400).json({ error: 'amount must be an integer string' });
+    }
+    if (amount <= 0n || amount > 1_000_000_000n) {
+      return res.status(400).json({ error: 'amount must be between 1 and 1000000000' });
+    }
+    // Destination is always the backend wallet's own address — never taken
+    // from the request — so funds can only return to the owner.
+    const destination = walletCtx.unshieldedKeystore.getBech32Address();
+    const destBytes = new Uint8Array(Buffer.from(destination.toString().slice(2), 'hex'));
+    const tx = await deployed.callTx.withdraw(amount, { bytes: destBytes });
+    res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
+  } catch {
+    res.status(500).json({ error: 'Withdrawal failed (not owner or insufficient contract balance)' });
+  }
+});
+
+// Owner-only: allowlist an additional provider address (hex string).
+app.post('/api/owner/allow-provider', requireAuth, async (req, res) => {
+  try {
+    const hex = String(req.body?.address ?? '');
+    if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+      return res.status(400).json({ error: 'address must be a 64-char hex string' });
+    }
+    const tx = await deployed.callTx.allowProvider({ bytes: new Uint8Array(Buffer.from(hex, 'hex')) });
+    res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
+  } catch {
+    res.status(500).json({ error: 'Failed to allow provider (not owner or already allowed)' });
+  }
+});
+
 // ─── Simulated x402 provider ────────────────────────────────────────────────
 
 // Simulated protected resource. Returns a 402 challenge unless the caller
@@ -295,7 +344,7 @@ app.post('/api/pay', requireAuth, async (req, res) => {
     };
     const payload = client.buildPaymentPayload(challenge);
     const tx = await deployed.callTx.payInvoice(
-      { bytes: payload.recipient },
+      { bytes: resource.address },
       payload.invoiceHash,
       payload.amount,
     );
