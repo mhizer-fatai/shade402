@@ -11,8 +11,6 @@ export function useRevealOnScroll(): RefObject<HTMLDivElement> {
 
   useEffect(() => {
     const root = containerRef.current ?? document.body;
-    // Watch BOTH single reveals and stagger containers. Missing
-    // `.reveal-stagger` here previously left those sections invisible.
     const targets = root.querySelectorAll<HTMLElement>('.reveal, .reveal-stagger');
 
     if (typeof IntersectionObserver === 'undefined') {
@@ -23,27 +21,23 @@ export function useRevealOnScroll(): RefObject<HTMLDivElement> {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
+          // Animate in when scrolled into view, and back out when it leaves,
+          // so sections re-animate every time the user scrolls past them.
           if (entry.isIntersecting) {
             entry.target.classList.add('revealed');
-            observer.unobserve(entry.target);
+          } else {
+            entry.target.classList.remove('revealed');
           }
         }
       },
-      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' },
+      // Small threshold so it triggers close to the viewport edges, and a
+      // rootMargin that keeps it "in range" while the section is visible.
+      { threshold: 0.15, rootMargin: '0px 0px -10% 0px' },
     );
 
     targets.forEach((el) => observer.observe(el));
 
-    // Safety net: anything already in view (or if the observer never fires)
-    // becomes visible shortly after mount so content is never stuck hidden.
-    const fallback = window.setTimeout(() => {
-      targets.forEach((el) => el.classList.add('revealed'));
-    }, 1200);
-
-    return () => {
-      observer.disconnect();
-      window.clearTimeout(fallback);
-    };
+    return () => observer.disconnect();
   }, []);
 
   return containerRef;
