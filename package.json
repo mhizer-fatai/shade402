@@ -22,6 +22,7 @@
     "test:simulation": "tsx src/simulate-402.ts",
     "test:unit": "tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e-check.ts",
+    "read-contract": "tsx scripts/read-contract.ts",
     "simulate": "npx tsx src/simulate-402.ts"
   },
   "dependencies": {

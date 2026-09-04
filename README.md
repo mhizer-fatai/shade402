@@ -88,6 +88,46 @@ npm test
 
 `npm test` runs the simulation and the unit tests. It needs no blockchain.
 
+## For Judges: 60-Second Evaluation Path
+
+No wallet, faucet, or chain sync needed:
+
+```bash
+npm install
+npm test                      # 10 unit tests + x402 simulation — no blockchain required
+npm run read-contract         # live on-chain state of the deployed contract (walletless, read-only)
+```
+
+`read-contract` prints the deployed contract's public ledger: registered agents (as pseudonymous keys), allowlisted providers, and settlement totals — straight from the Midnight Preview indexer. It demonstrates both what is verifiable on-chain and, by absence, what is not: no owner or agent identities, no secrets.
+
+To verify the full contract source, see `contracts/shade402.compact` (6 circuits, ~150 lines, heavily commented). The on-chain attack tests live in `scripts/verify-onchain.ts` (self-pay drain rejected, owner gate enforced, invoice replay rejected).
+
+To run the full end-to-end flow (wallet required, ~2 min first sync):
+
+```bash
+npm run server      # backend on http://localhost:4000 (prints API token)
+npm run web         # dashboard on http://localhost:5173
+```
+
+The dashboard asks for the API token printed at backend startup (a deliberate security feature — see the Security Model).
+
+## Ecosystem Attribution
+
+Built with the Midnight ecosystem:
+
+- [Midnight documentation](https://docs.midnight.network/) — Compact language, ledger, and token references
+- [Midnight.js](https://github.com/midnightntwrk) SDK suite (`midnight-js-contracts`, wallet SDK 1.2.0, indexer, proof providers)
+- Compact compiler 0.31.1 (`midnightntwrk/compact`)
+- Midnight public Preview testnet infrastructure (RPC, indexer, proof server)
+- [Midnight Academy](https://academy.midnight.network/) — patterns for pseudonymous-key contracts
+
+## Roadmap
+
+- **Wave 2 — private-state balances:** move per-agent balances and spend tracking from the public Map into Midnight private state (witness-maintained counters with commitments), so policy amounts leave the public ledger entirely. The current public-Map design mirrors Midnight's official examples (guest list, election); the upgrade keeps the same circuits and moves the data.
+- **Wave 2 — tiered discovery budgets:** let agents pay not-yet-allowlisted providers within a small, hard-capped "discovery budget" (e.g., 1 tNIGHT), restoring bounded autonomy for new x402 services while keeping the self-pay drain closed.
+- **Wave 3 — shielded settlement:** when Midnight supports third-party shielded delivery from contracts, upgrade `payInvoice` to shielded transfers so settlement amounts leave the public ledger. Tracked as a platform dependency.
+- **Wave 3 — agent-side SDK / MCP:** extract the Shade402 client into a sidecar so existing AI agents integrate natively instead of through the demo backend.
+
 To run the full stack against a deployed contract:
 
 ```bash

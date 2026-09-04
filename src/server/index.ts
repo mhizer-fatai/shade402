@@ -147,16 +147,22 @@ async function connect() {
     recordDeployment(network, address, walletCtx.unshieldedKeystore.getBech32Address().toString());
     deployed = result;
     console.log(`Deployed Shade402: ${address}`);
+  }
 
-    // Fresh deployment: allowlist the demo providers so payments can flow.
-    // (The deployer's witness is the owner, so these owner-only calls succeed.)
-    console.log('Allowlisting demo providers...');
-    for (const resource of RESOURCES) {
-      try {
-        await deployed.callTx.allowProvider({ bytes: resource.address });
-        console.log(`  allowed: ${resource.data.provider}`);
-      } catch (e: any) {
-        console.log(`  skip ${resource.data.provider}: ${e?.message ?? e}`);
+  // Ensure ALL demo providers are allowlisted on every startup (idempotent —
+  // the contract rejects duplicates, which we treat as already-done). This
+  // guards against a deployment that only allowlisted a subset of providers.
+  console.log('Ensuring demo providers are allowlisted...');
+  for (const resource of RESOURCES) {
+    try {
+      await deployed.callTx.allowProvider({ bytes: resource.address });
+      console.log(`  allowed: ${resource.data.provider}`);
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      if (/already allowed|already exists/.test(msg)) {
+        console.log(`  already allowed: ${resource.data.provider}`);
+      } else {
+        console.log(`  WARN could not allow ${resource.data.provider}: ${msg.slice(0, 80)}`);
       }
     }
   }
