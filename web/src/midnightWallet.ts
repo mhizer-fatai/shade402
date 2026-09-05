@@ -50,15 +50,37 @@ export async function connectWallet(
     throw new Error(`Wallet "${targetRdns}" not found.`);
   }
   const api = entry[1];
-  const connected = await api.connect(networkId);
-  const status = await connected.getConnectionStatus();
-  if (status.status !== 'connected') {
-    throw new Error('Wallet connection was not established.');
+
+  // Never hang forever on wallets that ignore the connect request: time out
+  // after 90s with a clear error.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () =>
+        reject(
+          new Error(
+            'Wallet did not answer. Check the Lace extension for a pending approval request, and confirm it is on the Midnight Preview network.',
+          ),
+        ),
+      90_000,
+    );
+  });
+
+  try {
+    const connected = await Promise.race([api.connect(networkId), timeout]);
+    const status = await connected.getConnectionStatus();
+    if (status.status !== 'connected') {
+      throw new Error('Wallet connection was not established.');
+    }
+    if (status.networkId !== networkId) {
+      throw new Error(
+        `Connected to ${status.networkId}, but this app needs ${networkId}. Switch networks in Lace and retry.`,
+      );
+    }
+    return connected;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
-  if (status.networkId !== networkId) {
-    throw new Error(`Connected to ${status.networkId}, expected ${networkId}.`);
-  }
-  return connected;
 }
 
 export interface WalletSnapshot {

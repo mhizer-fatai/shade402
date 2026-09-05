@@ -6,7 +6,6 @@ export default function ConnectWallet() {
   const { installed, wallets, connected, connecting, error, walletName, snapshot, network, connect, disconnect } =
     useWallet();
   const [selected, setSelected] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="connect-wallet">
@@ -78,13 +77,8 @@ export default function ConnectWallet() {
               disabled={!selected || connecting}
               onClick={() => selected && void connect(selected)}
             >
-              {connecting ? 'Connecting…' : 'Connect to Preview'}
+              {connecting ? 'Waiting for Lace… (check the extension for a prompt)' : 'Connect to Preview'}
             </button>
-            {expanded && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(false)}>
-                Hide details
-              </button>
-            )}
           </div>
         </div>
       )}
