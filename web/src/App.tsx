@@ -4,6 +4,7 @@ import DashboardPage from './DashboardPage';
 import { useTheme } from './useTheme';
 import { useScrollProgress } from './useScrollFx';
 import { shortHash } from './api';
+import { useWallet } from './WalletContext';
 
 function MoonIcon() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
   const [view, setView] = useState<View>('home');
   const [contract, setContract] = useState<string | null>(null);
   const scrollProgress = useScrollProgress();
+  const { connected, snapshot } = useWallet();
 
   // Lazily capture the contract address for the nav chip once we're in the dashboard.
   function handleLaunch() {
@@ -71,12 +73,27 @@ export default function App() {
             </button>
           </div>
           <div className="nav-right">
-            {view === 'dashboard' && contract && (
+            {view === 'dashboard' && contract && !connected && (
               <span className="wallet-chip">
                 <span className="dot" />
-                {shortHash(contract, 8, 6)}
+                contract {shortHash(contract, 6, 4)}
               </span>
             )}
+            <button
+              className={`nav-link ${connected ? '' : 'active'}`}
+              onClick={() => {
+                if (!connected) setView('dashboard');
+              }}
+            >
+              {connected ? (
+                <span className="wallet-chip" style={{ borderColor: 'var(--border)' }}>
+                  <span className="dot" />
+                  {snapshot?.unshieldedAddress ? shortHash(snapshot.unshieldedAddress, 8, 6) : 'Connected'}
+                </span>
+              ) : (
+                'Connect Wallet'
+              )}
+            </button>
             <button
               className="theme-toggle"
               onClick={toggleTheme}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { AgentInfo, HealthInfo, PayResult, MockResourceResult } from './api';
 import { api, shortHash, setApiToken, getApiToken } from './api';
+import { useWallet } from './WalletContext';
+import ConnectWallet from './ConnectWallet';
 
 const RESOURCES = [
   { path: '/api/data/flight-prices', label: 'Flight prices', price: '15' },
@@ -13,8 +15,10 @@ export default function DashboardPage() {
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [walletInfo, setWalletInfo] = useState<{ depositRecipient: string; tokenType: string } | null>(null);
   const [authed, setAuthed] = useState<boolean>(() => getApiToken() !== '');
   const [tokenInput, setTokenInput] = useState('');
+  const [depositMsg, setDepositMsg] = useState<string | null>(null);
   const [payments, setPayments] = useState<
     { invoiceId: string; txId: string; amount: string; recipient: string; time: string }[]
   >([]);
@@ -27,11 +31,18 @@ export default function DashboardPage() {
   const [payPath, setPayPath] = useState(RESOURCES[0].path);
   const [resourceResult, setResourceResult] = useState<MockResourceResult | null>(null);
 
+  const { connected, api: walletApi, refresh: refreshWallet } = useWallet();
+
   const refresh = useCallback(async () => {
     try {
-      const [h, a] = await Promise.all([api<HealthInfo>('/api/health'), api<AgentInfo>('/api/agent')]);
+      const [h, a, w] = await Promise.all([
+        api<HealthInfo>('/api/health'),
+        api<AgentInfo>('/api/agent'),
+        api<{ depositRecipient: string; tokenType: string }>('/api/wallet'),
+      ]);
       setHealth(h);
       setAgent(a);
+      setWalletInfo(w);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -66,13 +77,46 @@ export default function DashboardPage() {
   }
 
   async function deposit() {
-    await run(() =>
-      api('/api/agent/deposit', {
+    if (!walletApi || !walletInfo) {
+      setError('Connect your wallet and ensure the backend is reachable first.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setDepositMsg(null);
+    try {
+      const amount = BigInt(depositAmount);
+      if (amount <= 0n) throw new Error('Amount must be positive');
+
+      // STEP 1 — REAL USER-SIGNED TRANSACTION: Lace builds, balances, and
+      // submits a transfer of tNIGHT to the Shade402 recipient wallet. The
+      // user approves it in their wallet.
+      setDepositMsg('Step 1/2 — approve the deposit in your wallet (Lace)…');
+      const { tx } = await walletApi.makeTransfer([
+        {
+          kind: 'unshielded',
+          type: walletInfo.tokenType,
+          value: amount,
+          recipient: walletInfo.depositRecipient,
+        },
+      ]);
+      await walletApi.submitTransaction(tx);
+
+      // STEP 2 — credit the agent balance. The recipient wallet runs its own
+      // deposit circuit so the agent's on-chain balance increases.
+      setDepositMsg('Step 2/2 — crediting agent balance on-chain…');
+      await api('/api/agent/deposit', {
         method: 'POST',
         body: JSON.stringify({ amount: depositAmount }),
-      }),
-    );
-    setShowDeposit(false);
+      });
+      setDepositMsg('Deposit complete.');
+      await refreshWallet();
+      setShowDeposit(false);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function pay() {
@@ -111,14 +155,18 @@ export default function DashboardPage() {
 
   return (
     <main className="main">
+      {!connected && <ConnectWallet />}
+
+      {connected && (
+        <>
       {!authed && (
         <div className="table-card" style={{ padding: 24, marginBottom: 24 }}>
           <h2 className="section-title" style={{ marginBottom: 8 }}>
-            Connect to backend
+            Backend access token
           </h2>
           <p className="page-subtitle" style={{ marginBottom: 16 }}>
-            Paste the API token printed by the backend at startup
-            (SHADE_API_TOKEN, or the per-run token in the server console).
+            Shade402's payment service is protected by a token printed in the
+            backend console. Paste it once so the app can drive agent payments.
           </p>
           <div className="form-grid">
             <div className="field">
@@ -179,6 +227,13 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {depositMsg && (
+        <div className="busy-banner" style={{ marginTop: -16, marginBottom: 24 }}>
+          <span className="spinner" />
+          {depositMsg}
+        </div>
+      )}
 
       <div className="stats-row">
         <div className="stat-card">
@@ -349,6 +404,10 @@ export default function DashboardPage() {
             <h2 className="section-title">Deposit funds</h2>
           </div>
           <div className="table-card" style={{ padding: 20 }}>
+            <p className="page-subtitle" style={{ marginBottom: 16 }}>
+              You approve this in your wallet. Shade402 then credits the amount
+              to your agent's private spending account on-chain.
+            </p>
             <div className="form-grid">
               <div className="field">
                 <label>Amount (tNIGHT)</label>
@@ -357,7 +416,7 @@ export default function DashboardPage() {
             </div>
             <div className="agent-actions">
               <button className="btn btn-primary btn-sm" onClick={() => void deposit()} disabled={busy}>
-                Deposit on-chain
+                Sign &amp; deposit in wallet
               </button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowDeposit(false)}>
                 Cancel
@@ -404,6 +463,8 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+        </>
+      )}
     </main>
   );
 }

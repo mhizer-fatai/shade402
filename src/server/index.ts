@@ -206,6 +206,19 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, network, contractAddress: getDeployment(network)?.address ?? null });
 });
 
+// Public wallet info the frontend needs to build a real user-signed deposit:
+// where to send tNIGHT, plus the contract address. No secrets here.
+app.get('/api/wallet', (_req, res) => {
+  const address = walletCtx?.unshieldedKeystore.getBech32Address().toString() ?? null;
+  res.json({
+    network,
+    depositRecipient: address,
+    contractAddress: getDeployment(network)?.address ?? null,
+    // tNIGHT "raw" token id — used to build a transfer of native NIGHT.
+    tokenType: '0000000000000000000000000000000000000000000000000000000000000000',
+  });
+});
+
 // Live protocol stats read straight from the contract's public ledger.
 app.get('/api/stats', async (_req, res) => {
   try {
