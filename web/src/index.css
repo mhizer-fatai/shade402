@@ -903,6 +903,50 @@ body {
   color: var(--text-secondary);
 }
 
+.wallet-demo-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.wallet-demo-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.wallet-demo-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.demo-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px dashed var(--border-strong);
+  background: var(--accent-soft);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+}
+
+.demo-banner-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-banner-note {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
 /* ── Landing page ─────────────────────────── */
 
 .brand-button {

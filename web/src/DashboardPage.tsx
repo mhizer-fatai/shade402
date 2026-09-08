@@ -31,7 +31,17 @@ export default function DashboardPage() {
   const [payPath, setPayPath] = useState(RESOURCES[0].path);
   const [resourceResult, setResourceResult] = useState<MockResourceResult | null>(null);
 
+  // Demo mode: drive the live contract through the backend's custodian wallet,
+  // so the whole flow works in the browser without Lace. The backend is the
+  // deployer and already funds the contract, so register/deposit/pay all run
+  // server-side. Lace only becomes involved if the user opts into it.
+  const [demoMode, setDemoMode] = useState<boolean>(
+    () => window.localStorage.getItem('shade402-demo-mode') === '1',
+  );
+
   const { connected, api: walletApi, refresh: refreshWallet } = useWallet();
+  const active = demoMode || connected;
+  const isDemo = demoMode && !connected;
 
   const refresh = useCallback(async () => {
     try {
@@ -77,8 +87,8 @@ export default function DashboardPage() {
   }
 
   async function deposit() {
-    if (!walletApi || !walletInfo) {
-      setError('Connect your wallet and ensure the backend is reachable first.');
+    if (!active) {
+      setError('Connect your wallet or enter demo mode first.');
       return;
     }
     setBusy(true);
@@ -87,6 +97,23 @@ export default function DashboardPage() {
     try {
       const amount = BigInt(depositAmount);
       if (amount <= 0n) throw new Error('Amount must be positive');
+
+      if (demoMode) {
+        // Demo mode — the backend's custodian wallet funds the deposit, so no
+        // Lace signature is needed. The deposit circuit still runs on-chain.
+        setDepositMsg('Depositing from the demo custodian wallet on-chain…');
+        await api('/api/agent/deposit', {
+          method: 'POST',
+          body: JSON.stringify({ amount: depositAmount }),
+        });
+        setDepositMsg('Deposit complete.');
+        setShowDeposit(false);
+        return;
+      }
+
+      if (!walletApi || !walletInfo) {
+        throw new Error('Wallet not ready — reconnect and retry.');
+      }
 
       // STEP 1 — REAL USER-SIGNED TRANSACTION: Lace builds, balances, and
       // submits a transfer of tNIGHT to the Shade402 recipient wallet. The
@@ -155,9 +182,23 @@ export default function DashboardPage() {
 
   return (
     <main className="main">
-      {!connected && <ConnectWallet />}
+      {!active && (
+        <ConnectWallet
+          onEnterDemo={() => {
+            // Demo mode drives the live contract through the backend custodian
+            // wallet. The pinned localhost demo token is pre-seeded so the flow
+            // works with zero setup; the bearer-token auth stays enforced.
+            window.localStorage.setItem('shade402-demo-mode', '1');
+            if (!getApiToken()) {
+              setApiToken('shade402-demo-token');
+              setAuthed(true);
+            }
+            setDemoMode(true);
+          }}
+        />
+      )}
 
-      {connected && (
+      {active && (
         <>
       {!authed && (
         <div className="table-card" style={{ padding: 24, marginBottom: 24 }}>
@@ -227,6 +268,29 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {isDemo && (
+        <div className="demo-banner">
+          <div className="demo-banner-head">
+            <span className="chip chip-neutral">Demo mode</span>
+            <span className="demo-banner-note">
+              Transactions are signed by the backend&apos;s custodian wallet — no browser
+              wallet needed. All actions still run on the live Midnight Preview contract.
+            </span>
+          </div>
+          <div className="demo-banner-actions">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                window.localStorage.removeItem('shade402-demo-mode');
+                setDemoMode(false);
+              }}
+            >
+              Connect Lace instead
+            </button>
+          </div>
+        </div>
+      )}
 
       {depositMsg && (
         <div className="busy-banner" style={{ marginTop: -16, marginBottom: 24 }}>
@@ -405,8 +469,9 @@ export default function DashboardPage() {
           </div>
           <div className="table-card" style={{ padding: 20 }}>
             <p className="page-subtitle" style={{ marginBottom: 16 }}>
-              You approve this in your wallet. Shade402 then credits the amount
-              to your agent's private spending account on-chain.
+              {demoMode
+                ? "Deposits are funded from the demo custodian wallet. The deposit runs as a real on-chain transaction on Midnight Preview."
+                : "You approve this in your wallet. Shade402 then credits the amount to your agent's private spending account on-chain."}
             </p>
             <div className="form-grid">
               <div className="field">
@@ -416,7 +481,7 @@ export default function DashboardPage() {
             </div>
             <div className="agent-actions">
               <button className="btn btn-primary btn-sm" onClick={() => void deposit()} disabled={busy}>
-                Sign &amp; deposit in wallet
+                {demoMode ? "Deposit (demo custodian)" : "Sign & deposit in wallet"}
               </button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowDeposit(false)}>
                 Cancel

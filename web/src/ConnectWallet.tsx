@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useWallet } from './WalletContext';
 import { shortHash } from './api';
 
-export default function ConnectWallet() {
+export default function ConnectWallet({ onEnterDemo }: { onEnterDemo?: () => void }) {
   const { installed, wallets, connected, connecting, error, walletName, snapshot, network, connect, disconnect } =
     useWallet();
   const [selected, setSelected] = useState<string | null>(null);
@@ -35,6 +35,17 @@ export default function ConnectWallet() {
           >
             Install Lace
           </a>
+          {onEnterDemo && (
+            <>
+              <p className="wallet-hint" style={{ margin: '16px auto 12px', maxWidth: 460 }}>
+                Don&apos;t want to set up a wallet right now? The dashboard can still
+                drive the live contract through the backend&apos;s demo custodian wallet.
+              </p>
+              <button className="btn btn-secondary" onClick={onEnterDemo}>
+                Continue in demo mode
+              </button>
+            </>
+          )}
         </div>
       ) : connected && walletName ? (
         <div className="connected-bar">
@@ -99,6 +110,38 @@ export default function ConnectWallet() {
               );
             })}
           </div>
+
+          {wallets.length === 0 && onEnterDemo && (
+            <div className="table-card" style={{ padding: 16, marginTop: 16, background: 'var(--surface-2)' }}>
+              <h3 className="feature-title" style={{ marginBottom: 8 }}>
+                No Lace wallet detected?
+              </h3>
+              <p className="wallet-hint" style={{ marginBottom: 12 }}>
+                You can still run the full demo: the dashboard drives the live
+                Midnight Preview contract through the backend&apos;s own demo
+                custodian wallet — no browser wallet needed.
+              </p>
+              <button className="btn btn-primary" onClick={onEnterDemo}>
+                Continue in demo mode
+              </button>
+            </div>
+          )}
+
+          {wallets.length > 0 && onEnterDemo && (
+            <div className="wallet-demo-or">
+              <span className="wallet-demo-line" />
+              <span className="wallet-demo-label">or</span>
+              <span className="wallet-demo-line" />
+            </div>
+          )}
+
+          {wallets.length > 0 && onEnterDemo && (
+            <div className="agent-actions" style={{ marginTop: 0 }}>
+              <button className="btn btn-ghost" onClick={onEnterDemo}>
+                Continue in demo mode instead
+              </button>
+            </div>
+          )}
 
           <div className="agent-actions" style={{ marginTop: 18 }}>
             <button
