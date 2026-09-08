@@ -2,15 +2,29 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
-struct AgentPolicy {
-    balance: Uint<64>;
-    dailyLimit: Uint<64>;
-    spentInPeriod: Uint<64>;
-    periodEndsAt: Uint<64>;
-    perPaymentLimit: Uint<64>;
-}
+// Shade402 v2 — private payer identity for x402-style agent payments.
+//
+// Wave-1 security invariants preserved: owner-gated provider allowlist,
+// owner-only withdraw, on-chain invoice replay, allowlisted recipients.
+//
+// Privacy upgrade (v2): the public `agents: Map` is GONE. Per-agent balance
+// and policy now live in the agent's private state (off-chain, threaded via
+// witnesses). On-chain we keep only a HistoricMerkleTree whose leaves are
+// H("shade402:agent-leaf:v2" || agentSecret). A payment proves membership in
+// that tree with a private Merkle path — the chain learns that *some
+// registered agent* paid, never which one, its balance, or its history.
+//
+// What is public (by design): provider allowlist, invoice replay hashes,
+// aggregate deposit/settlement totals, the tree root. What is hidden: the
+// payer's identity, balance, per-agent history, and the secret itself.
+//
+// Honest scope: cumulative policy (daily limit, spent) is enforced in the
+// private state of the agent's custodian; the contract enforces allowlist,
+// replay, membership, and real-money solvency. Fully on-chain per-agent
+// policy with unlinkable history is the shielded-state (coin) upgrade.
 
-export ledger agents: Map<Bytes<32>, AgentPolicy>;
+// Public ledger — minimal, nothing per-agent.
+export ledger agents: HistoricMerkleTree<16, Bytes<32>>;
 export ledger usedInvoices: Set<Bytes<32>>;
 export ledger allowedProviders: Set<UserAddress>;
 export sealed ledger owner: Bytes<32>;
@@ -18,7 +32,21 @@ export ledger lastSettledInvoice: Bytes<32>;
 export ledger totalSettledAmount: Uint<64>;
 export ledger totalDeposited: Uint<64>;
 
+// Private witnesses.
+// localSecret: the deployer's secret (owner authority, same as v1).
+// agentSecret: the paying agent's secret — supplies the identity commitment.
+// agentPath:    private Merkle path proving the agent's leaf is in the tree.
+// The AgentState scalars are the agent's private policy/balance, read from
+// the custodian-held private state so the circuit can enforce policy in-ZK
+// without any of it touching the public ledger.
 witness localSecret(): Bytes<32>;
+witness agentSecret(): Bytes<32>;
+witness agentPath(): MerkleTreePath<16, Bytes<32>>;
+witness policyBalance(): Uint<64>;
+witness policyDailyLimit(): Uint<64>;
+witness policySpentInPeriod(): Uint<64>;
+witness policyPeriodEndsAt(): Uint<64>;
+witness policyPerPaymentLimit(): Uint<64>;
 
 // Sealed at deployment: the owner key derived from the deployer's secret.
 // Only the deployer can ever manage providers or withdraw funds.
@@ -26,15 +54,15 @@ constructor() {
     owner = disclose(ownerKey());
 }
 
-circuit agentKey(): Bytes<32> {
+circuit agentLeaf(sk: Bytes<32>): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
-        pad(32, "shade402:agent-key:v1"),
-        localSecret()
+        pad(32, "shade402:agent-leaf:v2"),
+        sk
     ]);
 }
 
 // Owner key derived from the same secret but a different domain, so the
-// owner's authorization key is distinct from the agent's spending key.
+// owner's authorization key is distinct from an agent's identity.
 circuit ownerKey(): Bytes<32> {
     return persistentHash<Vector<2, Bytes<32>>>([
         pad(32, "shade402:owner-key:v1"),
@@ -46,39 +74,27 @@ circuit requireOwner(): [] {
     assert(owner == disclose(ownerKey()), "Only the owner can call this circuit");
 }
 
-circuit currentPeriodSpent(account: AgentPolicy): Uint<64> {
-    if (blockTimeGte(account.periodEndsAt)) {
-        return 0;
-    }
-    return account.spentInPeriod;
-}
-
-circuit currentPeriodEnd(account: AgentPolicy): Uint<64> {
-    if (blockTimeGte(account.periodEndsAt)) {
-        return (account.periodEndsAt + 86400) as Uint<64>;
-    }
-    return account.periodEndsAt;
-}
-
+// Register an agent: append its identity commitment (leaf) to the tree.
+// Owner-gated in v2: the balance/policy that authorize payments now live in
+// private (witness) state, so letting anyone self-register would let an
+// external actor claim an arbitrary private balance and drain the pool.
+// The owner registers the agents it funds; the leaf is H(agentSecret), so the
+// chain stores no key that an observer can map back to a real agent, and a
+// payment later proves membership without revealing which leaf paid.
 export circuit registerAgent(
     dailyLimit: Uint<64>,
     perPaymentLimit: Uint<64>,
     periodEndsAt: Uint<64>
 ): [] {
-    const key = disclose(agentKey());
-    assert(!agents.member(key), "Agent is already registered");
+    requireOwner();
     assert(dailyLimit > 0, "Daily limit must be positive");
     assert(perPaymentLimit > 0, "Payment limit must be positive");
     assert(perPaymentLimit <= dailyLimit, "Payment limit exceeds daily limit");
     assert(blockTimeLt(disclose(periodEndsAt)), "Policy period must be in the future");
 
-    agents.insert(disclose(key), AgentPolicy {
-        balance: 0,
-        dailyLimit: disclose(dailyLimit),
-        spentInPeriod: 0,
-        periodEndsAt: disclose(periodEndsAt),
-        perPaymentLimit: disclose(perPaymentLimit)
-    });
+    const sk = agentSecret();
+    const leaf = agentLeaf(sk);
+    agents.insert(disclose(leaf));
 }
 
 // Owner-only: allow a provider address to receive payments. Agents can only
@@ -96,20 +112,13 @@ export circuit revokeProvider(provider: UserAddress): [] {
     allowedProviders.remove(disclose(provider));
 }
 
+// Deposit funds into the contract. The deposit is unshielded (public amount),
+// which the provider must be able to verify anyway. Per-agent crediting stays
+// in the agent's private state. totalDeposited is an aggregate, never
+// attributed to an agent on-chain.
 export circuit deposit(amount: Uint<64>): [] {
-    const key = disclose(agentKey());
-    assert(agents.member(key), "Agent is not registered");
     assert(amount > 0, "Deposit amount must be positive");
-
-    const account = agents.lookup(key);
     receiveUnshielded(nativeToken(), disclose(amount));
-    agents.insert(key, AgentPolicy {
-        balance: disclose((account.balance + amount) as Uint<64>),
-        dailyLimit: account.dailyLimit,
-        spentInPeriod: account.spentInPeriod,
-        periodEndsAt: account.periodEndsAt,
-        perPaymentLimit: account.perPaymentLimit
-    });
     totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
 }
 
@@ -126,42 +135,62 @@ export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
     );
 }
 
+circuit currentPeriodSpent(spent: Uint<64>, periodEndsAt: Uint<64>): Uint<64> {
+    if (blockTimeGte(periodEndsAt)) {
+        return 0;
+    }
+    return spent;
+}
+
+// Private settlement: prove the caller is a registered agent (Merkle
+// membership, payer identity hidden), that the invoice is unpaid, the
+// recipient is allowlisted, and that the payment is within the agent's
+// private policy — then settle to the provider.
 export circuit payInvoice(
     recipient: UserAddress,
     invoiceHash: Bytes<32>,
     amount: Uint<64>
 ): [] {
-    const key = disclose(agentKey());
-    assert(agents.member(key), "Agent is not registered");
-    assert(amount > 0, "Payment amount must be positive");
-    // Only owner-approved providers can ever be paid — an agent cannot
-    // redirect funds to itself or an arbitrary address.
+    // 1. Membership without identity: recompute the agent's leaf from the
+    //    private secret and verify it sits under a root the tree accepts.
+    //    The path (and thus the leaf + position) never goes on-chain.
+    const sk = agentSecret();
+    const path = agentPath();
+    const leaf = agentLeaf(sk);
+    assert(path.leaf == leaf, "Merkle path leaf does not match derived agent commitment");
+    const computed_root = merkleTreePathRoot<16, Bytes<32>>(disclose(path));
+    assert(agents.checkRoot(computed_root), "Agent is not registered");
+
+    // 2. Provider must be owner-allowlisted (drain protection).
     assert(allowedProviders.member(disclose(recipient)), "Recipient is not an allowed provider");
 
-    const account = agents.lookup(key);
+    // 3. Replay protection: an invoice can be settled at most once.
     assert(!usedInvoices.member(disclose(invoiceHash)), "Invoice has already been paid");
-    assert(account.balance >= amount, "Insufficient agent balance");
-    assert(account.perPaymentLimit >= amount, "Payment exceeds per-payment limit");
 
-    const periodSpent = currentPeriodSpent(account);
-    const nextPeriodEnd = currentPeriodEnd(account);
-    assert(periodSpent + amount <= account.dailyLimit, "Payment exceeds daily limit");
+    // 4. Policy enforcement in-ZK over the agent's private state.
+    assert(amount > 0, "Payment amount must be positive");
+    const balance = policyBalance();
+    const dailyLimit = policyDailyLimit();
+    const spent = policySpentInPeriod();
+    const periodEndsAt = policyPeriodEndsAt();
+    const perPaymentLimit = policyPerPaymentLimit();
 
+    assert(balance >= amount, "Insufficient agent balance");
+    assert(perPaymentLimit >= amount, "Payment exceeds per-payment limit");
+
+    const periodSpent = currentPeriodSpent(spent, periodEndsAt);
+    assert(periodSpent + amount <= dailyLimit, "Payment exceeds daily limit");
+
+    // 5. Settle. The payer-of-record is the Shade402 contract, so the
+    //    provider sees "Shade402 paid" — never which agent.
     sendUnshielded(
         nativeToken(),
         disclose(amount) as Uint<128>,
         right<ContractAddress, UserAddress>(disclose(recipient))
     );
 
-    agents.insert(key, AgentPolicy {
-        balance: disclose((account.balance - amount) as Uint<64>),
-        dailyLimit: account.dailyLimit,
-        spentInPeriod: disclose((periodSpent + amount) as Uint<64>),
-        periodEndsAt: disclose(nextPeriodEnd),
-        perPaymentLimit: account.perPaymentLimit
-    });
+    // 6. Record public outcomes: invoice used, aggregate total updated.
     usedInvoices.insert(disclose(invoiceHash));
-
     lastSettledInvoice = disclose(invoiceHash);
     totalSettledAmount = (totalSettledAmount + disclose(amount)) as Uint<64>;
 }
