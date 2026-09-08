@@ -18,10 +18,13 @@ import CompactStandardLibrary;
 // aggregate deposit/settlement totals, the tree root. What is hidden: the
 // payer's identity, balance, per-agent history, and the secret itself.
 //
-// Honest scope: cumulative policy (daily limit, spent) is enforced in the
-// private state of the agent's custodian; the contract enforces allowlist,
-// replay, membership, and real-money solvency. Fully on-chain per-agent
-// policy with unlinkable history is the shielded-state (coin) upgrade.
+// Honest scope (v2): per-agent balance, daily-limit, and period state live in
+// the agent's private state and are enforced in-ZK against the values the
+// custodian reports (the chain cannot time-check private state, and does not
+// store it). The contract itself enforces: agent membership (Merkle),
+// owner allowlist, invoice replay, and real-money solvency via sendUnshielded
+// against the contract's actual balance. Fully on-chain per-agent policy
+// with unlinkable history is the shielded-state (coin) upgrade.
 
 // Public ledger — minimal, nothing per-agent.
 export ledger agents: HistoricMerkleTree<16, Bytes<32>>;
@@ -39,13 +42,20 @@ export ledger totalDeposited: Uint<64>;
 // The AgentState scalars are the agent's private policy/balance, read from
 // the custodian-held private state so the circuit can enforce policy in-ZK
 // without any of it touching the public ledger.
+//
+// NOTE on period rollover: spentInPeriod / dailyLimit are private values, so
+// the circuit cannot call blockTimeGte on them (the compiler forbids time
+// checks on witness data — it would leak a time boundary). The custodian
+// therefore rolls the period over in its own private state before calling the
+// circuit, and reports the current-period spent value. The circuit enforces
+// that this payment fits within the reported spent/dailyLimit. This matches
+// the honest scope documented at the top of the file.
 witness localSecret(): Bytes<32>;
 witness agentSecret(): Bytes<32>;
 witness agentPath(): MerkleTreePath<16, Bytes<32>>;
 witness policyBalance(): Uint<64>;
 witness policyDailyLimit(): Uint<64>;
 witness policySpentInPeriod(): Uint<64>;
-witness policyPeriodEndsAt(): Uint<64>;
 witness policyPerPaymentLimit(): Uint<64>;
 
 // Sealed at deployment: the owner key derived from the deployer's secret.
@@ -83,14 +93,12 @@ circuit requireOwner(): [] {
 // payment later proves membership without revealing which leaf paid.
 export circuit registerAgent(
     dailyLimit: Uint<64>,
-    perPaymentLimit: Uint<64>,
-    periodEndsAt: Uint<64>
+    perPaymentLimit: Uint<64>
 ): [] {
     requireOwner();
     assert(dailyLimit > 0, "Daily limit must be positive");
     assert(perPaymentLimit > 0, "Payment limit must be positive");
     assert(perPaymentLimit <= dailyLimit, "Payment limit exceeds daily limit");
-    assert(blockTimeLt(disclose(periodEndsAt)), "Policy period must be in the future");
 
     const sk = agentSecret();
     const leaf = agentLeaf(sk);
@@ -135,13 +143,6 @@ export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
     );
 }
 
-circuit currentPeriodSpent(spent: Uint<64>, periodEndsAt: Uint<64>): Uint<64> {
-    if (blockTimeGte(periodEndsAt)) {
-        return 0;
-    }
-    return spent;
-}
-
 // Private settlement: prove the caller is a registered agent (Merkle
 // membership, payer identity hidden), that the invoice is unpaid, the
 // recipient is allowlisted, and that the payment is within the agent's
@@ -172,14 +173,11 @@ export circuit payInvoice(
     const balance = policyBalance();
     const dailyLimit = policyDailyLimit();
     const spent = policySpentInPeriod();
-    const periodEndsAt = policyPeriodEndsAt();
     const perPaymentLimit = policyPerPaymentLimit();
 
     assert(balance >= amount, "Insufficient agent balance");
     assert(perPaymentLimit >= amount, "Payment exceeds per-payment limit");
-
-    const periodSpent = currentPeriodSpent(spent, periodEndsAt);
-    assert(periodSpent + amount <= dailyLimit, "Payment exceeds daily limit");
+    assert(spent + amount <= dailyLimit, "Payment exceeds daily limit");
 
     // 5. Settle. The payer-of-record is the Shade402 contract, so the
     //    provider sees "Shade402 paid" — never which agent.
