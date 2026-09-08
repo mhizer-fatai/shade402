@@ -180,8 +180,17 @@ export default function DashboardPage() {
   const remaining = Math.max(0, limit - spent);
   const overLimit = limit > 0 && remaining === 0;
 
+  // One fixed, top-left transaction notice — visible no matter where the user
+  // is on the page (no scrolling up required). Shows progress while a
+  // transaction is being signed/submitted, then the outcome.
+
   return (
     <main className="main">
+      <TxToast
+        error={error}
+        busy={busy}
+        depositMsg={depositMsg}
+      />
       {!active && (
         <ConnectWallet
           onEnterDemo={() => {
@@ -235,23 +244,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {error && (
-        <div className="error-banner">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-          {error}
-        </div>
-      )}
-      {busy && (
-        <div className="busy-banner">
-          <span className="spinner" />
-          Submitting on-chain transaction — this can take 30–60 seconds.
-        </div>
-      )}
-
       <div className="page-header">
         <div>
           <h1 className="page-title">Owner dashboard</h1>
@@ -289,13 +281,6 @@ export default function DashboardPage() {
               Connect Lace instead
             </button>
           </div>
-        </div>
-      )}
-
-      {depositMsg && (
-        <div className="busy-banner" style={{ marginTop: -16, marginBottom: 24 }}>
-          <span className="spinner" />
-          {depositMsg}
         </div>
       )}
 
@@ -531,5 +516,54 @@ export default function DashboardPage() {
         </>
       )}
     </main>
+  );
+}
+
+function TxToast({
+  error,
+  busy,
+  depositMsg,
+}: {
+  error: string | null;
+  busy: boolean;
+  depositMsg: string | null;
+}) {
+  // Auto-dismiss a settled/error notice so the corner doesn't linger.
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      const t = window.setTimeout(() => setDismissed(true), 8000);
+      return () => window.clearTimeout(t);
+    }
+    setDismissed(false);
+  }, [busy, error, depositMsg]);
+
+  const success = !busy && depositMsg === 'Deposit complete.';
+  if (dismissed || (!error && !busy && !depositMsg)) return null;
+
+  const message =
+    error ?? depositMsg ?? 'Submitting on-chain transaction — this can take 30–60 seconds.';
+
+  return (
+    <div
+      className={`tx-toast ${error ? 'err' : success ? 'ok' : 'busy'}`}
+      role="status"
+      aria-live="polite"
+    >
+      {error ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      ) : success ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      ) : (
+        <span className="spinner" />
+      )}
+      <span>{message}</span>
+    </div>
   );
 }
