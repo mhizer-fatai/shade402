@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useWallet } from './WalletContext';
 import { shortHash } from './api';
 
@@ -6,6 +6,13 @@ export default function ConnectWallet() {
   const { installed, wallets, connected, connecting, error, walletName, snapshot, network, connect, disconnect } =
     useWallet();
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Auto-select the first available wallet so Connect is one click.
+  useEffect(() => {
+    if (!selected && wallets.length > 0) {
+      setSelected(wallets[0].rdns);
+    }
+  }, [wallets, selected]);
 
   const channelError = error && /shutdown|channel|no longer be used/i.test(error);
 
