@@ -1,22 +1,23 @@
 :root {
-  /* Light theme (default) — premium, muted, banking-grade */
-  --bg: #f7f8fa;
-  --bg-grad-1: #eef1f6;
-  --bg-grad-2: #f7f8fa;
+  /* Light theme (default) — premium, muted, banking-grade (Stitch-aligned) */
+  --bg: #f8f9fb;
+  --bg-grad-1: #f8f9fb;
+  --bg-grad-2: #f8f9fb;
   --surface: #ffffff;
-  --surface-2: #f2f4f7;
-  --surface-hover: #eef1f5;
-  --border: #e3e6eb;
-  --border-strong: #d4d8df;
+  --surface-2: #f3f4f6;
+  --surface-hover: #eef0f4;
+  --border: #e4e2ee;
+  --border-strong: #c7c4d8;
   --text: #1a2028;
   --text-secondary: #5a6472;
   --text-muted: #8a93a1;
-  --accent: #3556c7;
-  --accent-hover: #2c48a8;
-  --accent-soft: #e8edfa;
+  /* Stitch reference indigo tokens */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef2ff;
   --accent-text-on: #ffffff;
-  --success: #1e7d4f;
-  --success-soft: #e3f3ea;
+  --success: #137333;
+  --success-soft: #e6f4ea;
   --warning: #9a6b15;
   --warning-soft: #f7eedd;
   --danger: #b3373a;
@@ -41,12 +42,13 @@
   --text: #e8ebf0;
   --text-secondary: #a8b2c0;
   --text-muted: #6f7a89;
-  --accent: #7d9aec;
-  --accent-hover: #93aef2;
-  --accent-soft: #25304d;
+  /* Stitch reference indigo tokens (dark) */
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-soft: #1e2440;
   --accent-text-on: #0f1420;
-  --success: #5fbf8f;
-  --success-soft: #1c3228;
+  --success: #57c17c;
+  --success-soft: #132a1d;
   --warning: #d3a94e;
   --warning-soft: #33290f;
   --danger: #e07b7e;
@@ -336,7 +338,7 @@ body {
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 20px;
   box-shadow: var(--shadow-sm);
 }
@@ -405,7 +407,7 @@ body {
 .agent-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
 }
@@ -541,7 +543,7 @@ body {
 .table-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
@@ -1315,3 +1317,4 @@ body {
   margin: 0;
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
 }
+
