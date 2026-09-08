@@ -79,6 +79,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const connectedApi = await connectWallet(rdns);
         setApi(connectedApi);
         setWalletName(rdns);
+        // Populate the wallet state immediately, otherwise the UI never
+        // transitions to the connected bar even though Lace approved.
+        const snap = await getWalletSnapshot(connectedApi);
+        const net = await checkNetwork(connectedApi);
+        setSnapshot(snap);
+        setNetwork(net);
+        setConnected(net === 'preview');
+        if (net !== 'preview') {
+          setError(
+            `Connected to ${net}, but this app needs preview. Switch networks in Lace and reconnect.`,
+          );
+          return false;
+        }
         return true;
       } catch (e: any) {
         setError(e?.message ?? String(e));
