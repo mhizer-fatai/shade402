@@ -21,13 +21,6 @@
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
-        },
-        {
-          "name": "periodEndsAt",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 18446744073709551615
-          }
         }
       ],
       "result-type": {
@@ -198,6 +191,103 @@
         "type-name": "Bytes",
         "length": 32
       }
+    },
+    {
+      "name": "agentSecret",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "agentPath",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Struct",
+        "name": "MerkleTreePath",
+        "elements": [
+          {
+            "name": "leaf",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Vector",
+              "length": 16,
+              "type": {
+                "type-name": "Struct",
+                "name": "MerkleTreePathEntry",
+                "elements": [
+                  {
+                    "name": "sibling",
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "MerkleTreeDigest",
+                      "elements": [
+                        {
+                          "name": "field",
+                          "type": {
+                            "type-name": "Field"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "goes_left",
+                    "type": {
+                      "type-name": "Boolean"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "policyBalance",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "policyDailyLimit",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "policySpentInPeriod",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
+    },
+    {
+      "name": "policyPerPaymentLimit",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 18446744073709551615
+      }
     }
   ],
   "contracts": [
@@ -207,51 +297,11 @@
       "name": "agents",
       "index": 0,
       "exported": true,
-      "storage": "Map",
-      "key": {
+      "storage": "HistoricMerkleTree",
+      "depth": 16,
+      "type": {
         "type-name": "Bytes",
         "length": 32
-      },
-      "value": {
-        "type-name": "Struct",
-        "name": "AgentPolicy",
-        "elements": [
-          {
-            "name": "balance",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "dailyLimit",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "spentInPeriod",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "periodEndsAt",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          },
-          {
-            "name": "perPaymentLimit",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          }
-        ]
       }
     },
     {
