@@ -12,16 +12,16 @@ function challenge(overrides: Partial<InvoiceChallenge> = {}): InvoiceChallenge 
   };
 }
 
-test('agent key is deterministic for the same secret', () => {
+test('agent leaf is deterministic for the same secret', () => {
   const a = new Shade402Client(new Uint8Array(32).fill(7));
   const b = new Shade402Client(new Uint8Array(32).fill(7));
-  assert.deepEqual(a.getAgentKey(), b.getAgentKey());
+  assert.deepEqual(a.getAgentLeaf(), b.getAgentLeaf());
 });
 
-test('different secrets produce different agent keys', () => {
+test('different secrets produce different agent leaves', () => {
   const a = new Shade402Client(new Uint8Array(32).fill(1));
   const b = new Shade402Client(new Uint8Array(32).fill(2));
-  assert.notDeepEqual(a.getAgentKey(), b.getAgentKey());
+  assert.notDeepEqual(a.getAgentLeaf(), b.getAgentLeaf());
 });
 
 test('payment payload binds to invoice, recipient, amount, and expiry', () => {
@@ -55,4 +55,17 @@ test('recipient hash matches what the contract client derives', () => {
   const p = client.buildPaymentPayload(challenge());
   const expected = Shade402Client.recipientHash('provider_a');
   assert.deepEqual(p.recipient, expected);
+});
+
+test('agent leaf matches the contract leaf domain', () => {
+  // The v2 contract stores H(pad32("shade402:agent-leaf:v2") || secret) in the
+  // HistoricMerkleTree. Assert the JS-side leaf is exactly 32 bytes and
+  // deterministic, which is the property the on-chain findPathForLeaf needs.
+  const client = new Shade402Client(new Uint8Array(32).fill(42));
+  const leaf = client.getAgentLeaf();
+  assert.equal(leaf.length, 32);
+  assert.deepEqual(
+    Shade402Client.agentLeaf(new Uint8Array(32).fill(42)),
+    client.getAgentLeaf(),
+  );
 });

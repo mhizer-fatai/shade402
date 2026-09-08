@@ -20,13 +20,13 @@ import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-pri
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { createHash } from 'node:crypto';
-import { Shade402Client, type ShadePrivateState } from './shade-client';
+import { Shade402Client, type ShadePrivateState, makePrivateState } from './shade-client';
 
 // @ts-expect-error Required for wallet sync
 globalThis.WebSocket = WebSocket;
 
 // Identifier under which this contract's private state is stored.
-const PRIVATE_STATE_ID = 'shade402PrivateState';
+const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
 
 // ─── Network configuration ─────────────────────────────────────────────────────
 //
@@ -88,7 +88,7 @@ const agentSecret = new Uint8Array(
   createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
 const privateStateClient = new Shade402Client(agentSecret);
-const privateState: ShadePrivateState = { agentSecret };
+const privateState: ShadePrivateState = makePrivateState(agentSecret);
 const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
 const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, privateStateClient.getWitnesses());
 const compiledContract = (CompiledContract as any).withCompiledFileAssets(witnessCompiled, zkConfigPath);

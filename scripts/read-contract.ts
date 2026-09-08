@@ -3,7 +3,13 @@
  *
  * For judges and anyone evaluating: no wallet, no faucet, no sync required.
  * Reads the contract's public ledger state straight from the Midnight
- * indexer and prints agents, allowlisted providers, and settlement totals.
+ * indexer.
+ *
+ * v2 privacy proof: the public ledger holds a HistoricMerkleTree of agent
+ * identity commitments, provider allowlist, invoice replay hashes, and
+ * aggregate totals. It contains NO per-agent balances, NO per-agent limits,
+ * and NO history. This script prints exactly what any observer can see — and
+ * then states what is provably absent.
  *
  * Run: npx tsx scripts/read-contract.ts [--network preview|preprod]
  */
@@ -43,19 +49,13 @@ async function main() {
   const hex = (b: Uint8Array | { bytes: Uint8Array }) =>
     Buffer.from('bytes' in b ? b.bytes : b).toString('hex');
 
-  console.log('── Agents (pseudonymous on-chain keys) ──');
-  let count = 0;
-  for (const [key, policy] of l.agents) {
-    count += 1;
-    console.log(`  agent #${count}`);
-    console.log(`    key:              ${hex(key).slice(0, 16)}…`);
-    console.log(`    balance:          ${policy.balance}`);
-    console.log(`    daily limit:      ${policy.dailyLimit}`);
-    console.log(`    spent in period:  ${policy.spentInPeriod}`);
-    console.log(`    period ends:      ${new Date(Number(policy.periodEndsAt) * 1000).toISOString()}`);
-    console.log(`    per-payment cap:  ${policy.perPaymentLimit}\n`);
-  }
-  if (count === 0) console.log('  (none registered yet)\n');
+  console.log('── Registered agents (identity commitments in a Merkle tree) ──');
+  const agentCount = l.agents.firstFree();
+  console.log(`  ${agentCount} agent(s) registered`);
+  console.log(`  tree root: ${hex(leafToBytes(l.agents.root()))}…`);
+  console.log('  Leaves are H(secret) commitments — unlinkable to any identity.');
+  console.log('  A payment proves membership via a private path, so the chain');
+  console.log('  never learns which leaf (which agent) authorized it.\n');
 
   console.log('── Allowlisted providers (owner-approved payment recipients) ──');
   let pCount = 0;
@@ -66,15 +66,25 @@ async function main() {
   if (pCount === 0) console.log('  (none allowlisted yet)');
   console.log('');
 
-  console.log('── Settlement totals ──');
+  console.log('── Settlement totals (aggregate only) ──');
   console.log(`  total deposited:     ${l.totalDeposited}`);
   console.log(`  total settled:       ${l.totalSettledAmount}`);
   console.log(`  invoices settled:    ${l.usedInvoices.size()}`);
   console.log(`  last settled invoice: ${hex(l.lastSettledInvoice).slice(0, 16)}…\n`);
 
-  console.log('All data above is read from the public ledger — this is exactly');
-  console.log('what any observer can see. Note what is NOT here: no owner or');
-  console.log('agent identities, no secrets, no off-chain payment history.');
+  console.log('What this ledger does NOT contain — the privacy proof:');
+  console.log('  ✗ no per-agent balances');
+  console.log('  ✗ no per-agent spending limits or history');
+  console.log('  ✗ no link between a payment and which agent authorized it');
+  console.log('  ✗ no owner/agent identities, no secrets');
+  console.log('\nPer-agent balance and policy live in the agent\'s private state and');
+  console.log('are enforced inside zero-knowledge proofs — never on this ledger.');
+}
+
+/** HistoricMerkleTree.root() returns a MerkleTreeDigest { field } — print as hex. */
+function leafToBytes(d: { field: bigint }): Uint8Array {
+  const hexStr = d.field.toString(16).padStart(64, '0');
+  return new Uint8Array(Buffer.from(hexStr, 'hex'));
 }
 
 main().catch((e) => {

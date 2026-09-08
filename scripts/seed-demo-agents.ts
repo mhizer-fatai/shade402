@@ -15,7 +15,7 @@ import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { resolveNetwork, getOrCreateWallet, getDeployment } from '../src/network.js';
 import { createWallet, persistWalletState, waitForCoreSync, type WalletContext } from '../src/wallet.js';
-import { Shade402Client, type ShadePrivateState } from '../src/shade-client.js';
+import { Shade402Client, makePrivateState, type ShadePrivateState } from '../src/shade-client.js';
 
 // @ts-expect-error wallet sync requires WebSocket
 globalThis.WebSocket = WebSocket;
@@ -23,7 +23,7 @@ globalThis.WebSocket = WebSocket;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'shade402');
 const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
-const PRIVATE_STATE_ID = 'shade402PrivateState';
+const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
 
 const { network, config: networkConfig } = resolveNetwork();
 const SEED = getOrCreateWallet(network).seed;
@@ -40,8 +40,14 @@ async function main() {
     const agentSecret = new Uint8Array(
       createHash('sha256').update(`shade402:agent-secret:${SEED}:${salt}`).digest(),
     );
-    const client = new Shade402Client(agentSecret);
-    const privateState: ShadePrivateState = { agentSecret };
+    // registerAgent is owner-gated in v2: only the deployer (ownerSecret
+    // derived from SEED) may append agent leaves. Each agent keeps its own
+    // distinct identity secret.
+    const ownerSecret = new Uint8Array(
+      createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
+    );
+    const client = new Shade402Client(agentSecret, {}, ownerSecret);
+    const privateState: ShadePrivateState = makePrivateState(agentSecret, {}, ownerSecret);
 
     const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
     const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, client.getWitnesses());
@@ -92,12 +98,11 @@ async function main() {
     });
 
     try {
-      const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + 86400);
-      const tx = await deployed.callTx.registerAgent(500n, 100n, periodEndsAt);
-      console.log(`registered ${salt}: key=${Buffer.from(client.getAgentKey()).toString('hex').slice(0, 16)}… tx=${tx.public.txId}`);
+      const tx = await deployed.callTx.registerAgent(500n, 100n);
+      console.log(`registered ${salt}: leaf=${Buffer.from(client.getAgentLeaf()).toString('hex').slice(0, 16)}… tx=${tx.public.txId}`);
     } catch (e: any) {
       const msg = e?.message ?? String(e);
-      console.log(`skip ${salt}: ${/already registered/.test(msg) ? 'already registered' : msg.slice(0, 80)}`);
+      console.log(`skip ${salt}: ${msg.slice(0, 100)}`);
     }
     await walletCtx.wallet.stop();
   }

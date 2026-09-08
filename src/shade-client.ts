@@ -1,19 +1,15 @@
 import * as crypto from 'node:crypto';
 import { persistentHash, CompactTypeBytes, CompactTypeVector } from '@midnight-ntwrk/compact-runtime';
 
-const AGENT_KEY_PREFIX = new Uint8Array([
-  115, 104, 97, 100, 101, 52, 48, 50, 58, 97, 103, 101, 110, 116, 45, 107,
-  101, 121, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+// Must match the contract's `persistentHash<Vector<2, Bytes<32>>>` for the
+// agent leaf in `shade402.compact` exactly — otherwise the JS-side leaf will
+// differ from the leaf the contract stores in the Merkle tree.
+const AGENT_LEAF_PREFIX = new Uint8Array([
+  115, 104, 97, 100, 101, 52, 48, 50, 58, 97, 103, 101, 110, 116, 45, 108,
+  101, 97, 102, 45, 118, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]);
 
-// Must match the contract's `persistentHash<Vector<2, Bytes<32>>>` in
-// `shade402.compact` exactly — otherwise the JS-side agent key will differ
-// from the key the contract stores on-chain.
-const agentKeyType = new CompactTypeVector(2, new CompactTypeBytes(32));
-
-export interface ShadePrivateState {
-  agentSecret: Uint8Array;
-}
+const agentLeafType = new CompactTypeVector(2, new CompactTypeBytes(32));
 
 export interface AgentPolicy {
   balance: bigint;
@@ -21,6 +17,41 @@ export interface AgentPolicy {
   spentInPeriod: bigint;
   periodEndsAt: bigint;
   perPaymentLimit: bigint;
+}
+
+export const EMPTY_POLICY: AgentPolicy = {
+  balance: 0n,
+  dailyLimit: 0n,
+  spentInPeriod: 0n,
+  periodEndsAt: 0n,
+  perPaymentLimit: 0n,
+};
+
+/**
+ * Build a v2 private state. `ownerSecret` defaults to `agentSecret` (the
+ * single-custodian demo uses one seed for both roles); callers that want a
+ * distinct owner may pass it explicitly.
+ */
+export function makePrivateState(
+  agentSecret: Uint8Array,
+  policy: Partial<AgentPolicy> = {},
+  ownerSecret: Uint8Array = agentSecret,
+): ShadePrivateState {
+  return { ownerSecret, agentSecret, policy: { ...EMPTY_POLICY, ...policy } };
+}
+
+/**
+ * Private state held by the custodian (never on-chain).
+ *
+ * v2: per-agent balance and policy live here, threaded through witnesses so
+ * the circuit can enforce policy in-ZK without any of it touching the public
+ * ledger. `ownerSecret` and `agentSecret` are distinct so the owner authority
+ * is separate from the paying agent's identity.
+ */
+export interface ShadePrivateState {
+  ownerSecret: Uint8Array;
+  agentSecret: Uint8Array;
+  policy: AgentPolicy;
 }
 
 export interface InvoiceChallenge {
@@ -39,28 +70,93 @@ export interface PaymentPayload {
 export class Shade402Client {
   private state: ShadePrivateState;
 
-  constructor(agentSecret: Uint8Array = crypto.randomBytes(32)) {
-    this.state = { agentSecret };
+  constructor(
+    agentSecret: Uint8Array,
+    policy: Partial<AgentPolicy> = {},
+    ownerSecret: Uint8Array = agentSecret,
+  ) {    this.state = {
+      ownerSecret,
+      agentSecret,
+      policy: {
+        balance: 0n,
+        dailyLimit: 0n,
+        spentInPeriod: 0n,
+        periodEndsAt: 0n,
+        perPaymentLimit: 0n,
+        ...policy,
+      },
+    };
   }
 
   public getSecret(): Uint8Array {
     return this.state.agentSecret;
   }
 
+  public getPolicy(): AgentPolicy {
+    return { ...this.state.policy };
+  }
+
+  public setPolicy(policy: Partial<AgentPolicy>): void {
+    this.state.policy = { ...this.state.policy, ...policy };
+  }
+
+  /** The 32-byte Merkle leaf (identity commitment) for this agent. */
+  public static agentLeaf(agentSecret: Uint8Array): Uint8Array {
+    return persistentHash(agentLeafType as any, [AGENT_LEAF_PREFIX, agentSecret]);
+  }
+
+  public getAgentLeaf(): Uint8Array {
+    return Shade402Client.agentLeaf(this.state.agentSecret);
+  }
+
+  /**
+   * Build the witness set the compact runtime calls during proof generation.
+   *
+   * The generated contract API (v2) declares these witnesses:
+   *   localSecret, agentSecret, agentPath, policyBalance, policyDailyLimit,
+   *   policySpentInPeriod, policyPerPaymentLimit
+   *
+   * - localSecret: the deployer's secret (owner authority).
+   * - agentSecret / agentLeaf: the paying agent's identity.
+   * - agentPath: read from the *projected ledger state* available in the
+   *   witness context. The HistoricMerkleTree exposes findPathForLeaf; we
+   *   return the private inclusion path so the circuit can recompute the root
+   *   and prove membership without the path ever going on-chain.
+   * - policy*: the agent's private balance/limits, read from this.state.policy.
+   */
   public getWitnesses() {
     return {
-      localSecret: (context: any): [ShadePrivateState, Uint8Array] => {
+      localSecret: (_context: any): [ShadePrivateState, Uint8Array] => {
+        return [this.state, this.state.ownerSecret];
+      },
+      agentSecret: (_context: any): [ShadePrivateState, Uint8Array] => {
         return [this.state, this.state.agentSecret];
       },
+      agentPath: (context: any): [ShadePrivateState, unknown] => {
+        const leaf = this.getAgentLeaf();
+        const agents = context?.ledger?.agents;
+        if (!agents || typeof agents.findPathForLeaf !== 'function') {
+          throw new Error('agentPath witness: ledger does not expose findPathForLeaf');
+        }
+        const path = agents.findPathForLeaf(leaf);
+        if (!path) {
+          throw new Error('Agent is not registered: no Merkle path for this agent leaf');
+        }
+        return [this.state, path];
+      },
+      policyBalance: (context: any): [ShadePrivateState, bigint] => {
+        return [this.state, this.state.policy.balance];
+      },
+      policyDailyLimit: (context: any): [ShadePrivateState, bigint] => {
+        return [this.state, this.state.policy.dailyLimit];
+      },
+      policySpentInPeriod: (context: any): [ShadePrivateState, bigint] => {
+        return [this.state, this.state.policy.spentInPeriod];
+      },
+      policyPerPaymentLimit: (context: any): [ShadePrivateState, bigint] => {
+        return [this.state, this.state.policy.perPaymentLimit];
+      },
     };
-  }
-
-  public static agentKey(agentSecret: Uint8Array): Uint8Array {
-    return persistentHash(agentKeyType as any, [AGENT_KEY_PREFIX, agentSecret]);
-  }
-
-  public getAgentKey(): Uint8Array {
-    return Shade402Client.agentKey(this.state.agentSecret);
   }
 
   public static invoiceHash(challenge: InvoiceChallenge): Uint8Array {

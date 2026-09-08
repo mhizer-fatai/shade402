@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
+import * as crypto from 'node:crypto';
 import { Shade402Client, type InvoiceChallenge } from './shade-client.js';
 
 async function runSimulation() {
@@ -13,8 +14,9 @@ async function runSimulation() {
   const contractModule = await import(pathToFileURL(contractManagedPath).href);
   const { Contract } = contractModule;
 
-  const client = new Shade402Client();
-  console.log('Agent key (scrambled): ' + Buffer.from(client.getAgentKey()).toString('hex').slice(0, 16) + '...');
+  const agentSecret = crypto.randomBytes(32);
+  const client = new Shade402Client(agentSecret);
+  console.log('Agent leaf (private identity commitment): ' + Buffer.from(client.getAgentLeaf()).toString('hex').slice(0, 16) + '...');
 
   const witnesses = client.getWitnesses();
   const contract = new Contract(witnesses);

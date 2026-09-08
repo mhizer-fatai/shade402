@@ -37,7 +37,10 @@ const zkConfigPath = path.resolve(__dirname, '..', '..', 'contracts', 'managed',
 const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
 
 const PORT = Number(process.env.PORT ?? 4000);
-const PRIVATE_STATE_ID = 'shade402PrivateState';
+// v2 uses a fresh private-state id: the persisted state shape changed (it now
+// carries the agent policy), and the v2 contract is a new deployment, so old
+// cached state must not leak in.
+const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
 
 const { network, config: networkConfig } = resolveNetwork();
 const WALLET = getOrCreateWallet(network);
@@ -60,11 +63,26 @@ const ALLOWED_ORIGINS = (process.env.SHADE_ALLOWED_ORIGINS ?? 'http://localhost:
   if (notice) console.log(notice);
 }
 
+// v2 custodial model: the owner secret drives the owner gate (allowProvider,
+// withdraw, registerAgent), and the agent secret is the paying agent's private
+// identity — its Merkle leaf is H("shade402:agent-leaf:v2" || agentSecret).
+// The agent's balance/policy bookkeeping lives in the client's private state
+// and is what the policy witnesses report during proof generation.
 const agentSecret = new Uint8Array(
   createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
 const client = new Shade402Client(agentSecret);
-const privateState: ShadePrivateState = { agentSecret };
+const privateState: ShadePrivateState = {
+  ownerSecret: agentSecret,
+  agentSecret,
+  policy: {
+    balance: 0n,
+    dailyLimit: 0n,
+    spentInPeriod: 0n,
+    periodEndsAt: 0n,
+    perPaymentLimit: 0n,
+  },
+};
 
 let walletCtx: WalletContext;
 let providers: Awaited<ReturnType<typeof createProviders>>;
@@ -228,7 +246,8 @@ app.get('/api/stats', async (_req, res) => {
     res.json({
       network,
       contractAddress: deploymentAddress(),
-      registeredAgents: l.agents.size().toString(),
+      // HistoricMerkleTree exposes the next free slot; agents sit at 0..n-1.
+      registeredAgents: l.agents.firstFree().toString(),
       totalDeposited: l.totalDeposited.toString(),
       totalSettled: l.totalSettledAmount.toString(),
       invoicesSettled: l.usedInvoices.size().toString(),
@@ -244,14 +263,15 @@ app.get('/api/agent', async (_req, res) => {
     const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
     if (!state) return res.status(404).json({ error: 'No contract state' });
     const l = ledger(state.data);
-    const key = client.getAgentKey();
-    if (!l.agents.member(key)) {
-      return res.json({ registered: false, agentKey: Buffer.from(key).toString('hex') });
-    }
-    const policy = l.agents.lookup(key);
+    // Membership: does the agent's leaf sit in the on-chain Merkle tree? The
+    // tree exposes only inclusion — an observer can see the agent is
+    // registered, but the private policy (balance/limits) is not on-chain.
+    const leaf = client.getAgentLeaf();
+    const inTree = !!l.agents.findPathForLeaf(leaf);
+    const policy = client.getPolicy();
     res.json({
-      registered: true,
-      agentKey: Buffer.from(key).toString('hex'),
+      registered: inTree,
+      agentLeaf: Buffer.from(leaf).toString('hex'),
       balance: policy.balance.toString(),
       dailyLimit: policy.dailyLimit.toString(),
       spentInPeriod: policy.spentInPeriod.toString(),
@@ -275,8 +295,13 @@ app.post('/api/agent/register', requireAuth, async (req, res) => {
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) {
       return res.status(400).json({ error: 'periodHours must be between 1 and 720' });
     }
+    // v2: the on-chain circuit stores only the Merkle leaf and enforces the
+    // owner gate + limit sanity. The actual policy (daily limit, per-payment
+    // cap, period) lives in the agent's private state and is what the policy
+    // witnesses report on every payment.
     const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + hours * 3600);
-    const tx = await deployed.callTx.registerAgent(dl, pl, periodEndsAt);
+    client.setPolicy({ dailyLimit: dl, perPaymentLimit: pl, periodEndsAt });
+    const tx = await deployed.callTx.registerAgent(dl, pl);
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
   } catch {
     res.status(500).json({ error: 'Failed to register agent' });
@@ -294,7 +319,12 @@ app.post('/api/agent/deposit', requireAuth, async (req, res) => {
     if (amount <= 0n || amount > 1_000_000_000n) {
       return res.status(400).json({ error: 'amount must be between 1 and 1000000000' });
     }
+    // On-chain: unshielded deposit into the contract (aggregate only). The
+    // per-agent balance is private bookkeeping the custodian maintains and
+    // reports via policyBalance on the next payment proof.
     const tx = await deployed.callTx.deposit(amount);
+    const policy = client.getPolicy();
+    client.setPolicy({ balance: policy.balance + amount });
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight, amount: amount.toString() });
   } catch {
     res.status(500).json({ error: 'Failed to deposit' });
@@ -367,6 +397,14 @@ app.post('/api/pay', requireAuth, async (req, res) => {
       payload.invoiceHash,
       payload.amount,
     );
+    // Debit the agent's private bookkeeping now that settlement succeeded.
+    // The policy witnesses will report the reduced balance/spent on the next
+    // payment proof.
+    const policy = client.getPolicy();
+    client.setPolicy({
+      balance: policy.balance - amount,
+      spentInPeriod: policy.spentInPeriod + amount,
+    });
     res.json({
       ok: true,
       invoiceId,

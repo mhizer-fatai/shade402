@@ -19,7 +19,7 @@ import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeploym
 import { createWallet, persistWalletState, waitForCoreSync, unshieldedToken, type WalletContext } from './wallet';
 import * as Rx from 'rxjs';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
-import { Shade402Client, type ShadePrivateState } from './shade-client';
+import { Shade402Client, type ShadePrivateState, makePrivateState } from './shade-client';
 import { createHash } from 'node:crypto';
 
 // Enable WebSocket for GraphQL subscriptions
@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto';
 globalThis.WebSocket = WebSocket;
 
 // Must match the privateStateId used at deploy time.
-const PRIVATE_STATE_ID = 'shade402PrivateState';
+const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
 
 const { network, config: networkConfig } = resolveNetwork();
 const WALLET = getOrCreateWallet(network);
@@ -55,7 +55,7 @@ const agentSecret = new Uint8Array(
   createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
 const privateStateClient = new Shade402Client(agentSecret);
-const privateState: ShadePrivateState = { agentSecret };
+const privateState: ShadePrivateState = makePrivateState(agentSecret);
 const baseCompiled = CompiledContract.make('shade402', Shade402.Contract) as any;
 const witnessCompiled = (CompiledContract as any).withWitnesses(baseCompiled, privateStateClient.getWitnesses());
 const compiledContract = (CompiledContract as any).withCompiledFileAssets(witnessCompiled, zkConfigPath);
@@ -197,9 +197,10 @@ async function main() {
           const perPaymentLimit = BigInt(await rl.question('  Per-payment limit: '));
           const periodHours = Number(await rl.question('  Period length (hours): ')) || 24;
           const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + periodHours * 3600);
+          privateStateClient.setPolicy({ dailyLimit, perPaymentLimit, periodEndsAt });
           console.log('\n  Submitting registration (this may take 30-60 seconds)...');
           try {
-            const tx = await deployed.callTx.registerAgent(dailyLimit, perPaymentLimit, periodEndsAt);
+            const tx = await deployed.callTx.registerAgent(dailyLimit, perPaymentLimit);
             console.log(`\n  ✅ Agent registered`);
             console.log(`  Transaction ID: ${tx.public.txId}\n`);
           } catch (error) {
@@ -213,6 +214,8 @@ async function main() {
           console.log('\n  Submitting transaction (this may take 30-60 seconds)...');
           try {
             const tx = await deployed.callTx.deposit(amount);
+            const policy = privateStateClient.getPolicy();
+            privateStateClient.setPolicy({ balance: policy.balance + amount });
             console.log(`\n  ✅ Deposited ${amount} units`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Block height: ${tx.public.blockHeight}\n`);
@@ -241,6 +244,11 @@ async function main() {
               payload.invoiceHash,
               payload.amount,
             );
+            const policy = privateStateClient.getPolicy();
+            privateStateClient.setPolicy({
+              balance: policy.balance - amount,
+              spentInPeriod: policy.spentInPeriod + amount,
+            });
             console.log(`\n  ✅ Invoice paid: ${invoiceId}`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Invoice hash: ${Buffer.from(payload.invoiceHash).toString('hex')}\n`);
@@ -251,27 +259,21 @@ async function main() {
         }
 
         case '4': {
-          console.log('\n  Reading agent policy from blockchain...');
+          console.log('\n  Reading agent policy (private custodian state)...');
           try {
             const contractState = await providers.publicDataProvider.queryContractState(deployment.address);
-            if (contractState) {
-              const ledgerState = Shade402.ledger(contractState.data);
-              const key = Shade402Client.agentKey(agentSecret);
-              const keyHex = Buffer.from(key).toString('hex');
-              if (ledgerState.agents.member(key)) {
-                const policy = ledgerState.agents.lookup(key);
-                console.log(`\n  Agent key: ${keyHex.slice(0, 16)}...`);
-                console.log(`  Balance:          ${policy.balance}`);
-                console.log(`  Daily limit:      ${policy.dailyLimit}`);
-                console.log(`  Spent this period: ${policy.spentInPeriod}`);
-                console.log(`  Period ends at:   ${new Date(Number(policy.periodEndsAt) * 1000).toISOString()}`);
-                console.log(`  Per-payment limit: ${policy.perPaymentLimit}\n`);
-              } else {
-                console.log('\n  Agent is not registered yet.\n');
-              }
-            } else {
-              console.log('\n  No contract state found.\n');
-            }
+            const leaf = privateStateClient.getAgentLeaf();
+            const inTree = contractState
+              ? !!Shade402.ledger(contractState.data).agents.findPathForLeaf(leaf)
+              : false;
+            const policy = privateStateClient.getPolicy();
+            console.log(`\n  Agent registered on-chain: ${inTree}`);
+            console.log(`  Agent leaf: ${Buffer.from(leaf).toString('hex').slice(0, 16)}...`);
+            console.log(`  Balance:          ${policy.balance} (private)`);
+            console.log(`  Daily limit:      ${policy.dailyLimit}`);
+            console.log(`  Spent this period: ${policy.spentInPeriod}`);
+            console.log(`  Period ends at:   ${new Date(Number(policy.periodEndsAt) * 1000).toISOString()}`);
+            console.log(`  Per-payment limit: ${policy.perPaymentLimit}\n`);
           } catch (error) {
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
