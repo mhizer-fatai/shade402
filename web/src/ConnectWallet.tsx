@@ -7,6 +7,8 @@ export default function ConnectWallet() {
     useWallet();
   const [selected, setSelected] = useState<string | null>(null);
 
+  const channelError = error && /shutdown|channel|no longer be used/i.test(error);
+
   return (
     <div className="connect-wallet">
       {!installed ? (
@@ -51,6 +53,26 @@ export default function ConnectWallet() {
           {error && (
             <div className="error-banner" style={{ marginBottom: 14 }}>
               {error}
+              {channelError && (
+                <div className="wallet-hint">
+                  Lace ended the connection. This usually means it is still syncing to
+                  Midnight Preview, or a stale session needs clearing.
+                </div>
+              )}
+            </div>
+          )}
+
+          {channelError && (
+            <div className="table-card" style={{ padding: 16, marginBottom: 16, background: 'var(--surface-2)' }}>
+              <h3 className="feature-title" style={{ marginBottom: 8 }}>
+                Try these first
+              </h3>
+              <ol className="wallet-steps">
+                <li>Open the Lace extension and confirm the network is <strong>Midnight Preview</strong>.</li>
+                <li>Let Lace finish syncing (you may see it catch up in the extension).</li>
+                <li>If it's synced, click Disconnect, then Connect again.</li>
+                <li>Still failing? Reload this page, then click Connect — this clears the stale session.</li>
+              </ol>
             </div>
           )}
 

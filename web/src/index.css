@@ -889,6 +889,20 @@ body {
   gap: 12px;
 }
 
+.wallet-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wallet-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--text-secondary);
+}
+
 /* ── Landing page ─────────────────────────── */
 
 .brand-button {
