@@ -1,69 +1,99 @@
 # Shade402
 
-Shade402 is a privacy-preserving HTTP 402 (x402) payment facilitator for autonomous AI agents, built on Midnight. An agent keeps a private balance and an owner-controlled spending policy, proves it is funded and within its rules inside a zero-knowledge proof, and the Shade402 contract pays any provider with an unshielded settlement. The agent's identity, balance, and spending history are not visible to the provider.
+Shade402 is a privacy-preserving HTTP 402 (x402) payment facilitator for autonomous AI agents, built on Midnight. An agent keeps a private balance and an owner-controlled spending policy, proves it is funded and within its rules inside a zero-knowledge proof, and the Shade402 contract pays the provider with an unshielded settlement. **The provider sees that Shade402 paid — never which agent.**
 
-## Wave 1 Scope
+- **Live on Midnight Preview:** contract `3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c`
+- **Explorer (contract):** https://preview.midnightexplorer.com/contracts/3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c
 
-Wave 1 delivers a working full stack:
+## Wave 1 Progress
 
-- **Compact contract** (`contracts/shade402.compact`) with real private-state management and the dual-ledger model:
-  - `registerAgent(dailyLimit, perPaymentLimit, periodEndsAt)` — owner registers an agent account with a spending policy.
-  - `deposit(amount)` — owner funds the agent's balance on the contract.
-  - `payInvoice(recipient, invoiceHash, amount)` — agent pays a provider: the contract checks balance, per-payment limit, daily limit, and invoice replay, then settles with `sendUnshielded`.
-- **TypeScript client** (`src/shade-client.ts`) that supplies the `localSecret` witness and derives agent keys and invoice hashes.
-- **Backend service** (`src/server/`) — an Express API that connects to the deployed contract and includes a **simulated x402 provider** that issues a `402 Payment Required` challenge and releases a protected resource once a settlement receipt is presented.
-- **React dashboard** (`web/`) — an owner UI to register the agent policy, deposit, pay an x402 service, and view the public settlement.
-- **Tests** (`tests/`) — unit tests for the client and the x402 provider flow, plus a simulation (`src/simulate-402.ts`).
+Wave 1 delivered a working full stack with a **scoped privacy upgrade** over the initial design:
+
+- **Compact contract** (`contracts/shade402.compact`) — the public per-agent `Map` was **removed**. The public ledger now holds only a `HistoricMerkleTree` of agent identity commitments, a provider allowlist, invoice replay hashes, and aggregate totals.
+- **Private-state policy** — per-agent balance and limits moved into private witnesses, enforced in-ZK, never written on-chain.
+- **Backend** (`src/server/`) — owner-gated registration, deposits, x402 invoice payment, a simulated provider, and an **indexer-backed transaction verifier**.
+- **React dashboard** (`web/`) — register/deposit/pay, live activity, and an in-app "on-chain verification" modal.
+- **Tests** — 11 unit tests, an offline x402 simulation, and on-chain attack tests (`scripts/verify-onchain.ts`).
 
 ## Privacy Design
 
-The agent's secret is a private witness value. The contract derives a dApp-specific agent key from it and stores the policy (balance, limits, period) under that key on the public ledger. The key is a hash of the secret, so it is **unlinkable to any real-world identity** — but the policy amounts themselves are recorded on-chain (pseudonymous, not confidential). Every payment must prove, inside the ZK proof, that:
+Every agent is represented on-chain by a single 32-byte **commitment**:
+
+```
+leaf = H("shade402:agent-leaf:v2" || agentSecret)
+```
+
+The leaf is inserted into a `HistoricMerkleTree<16, Bytes<32>>`. To pay, the agent proves **Merkle membership using a private path** (`witness agentPath`) — the circuit recomputes the root and checks it against a known root, so the chain learns *that some registered agent* authorized the payment, but not *which leaf*. The leaf and path never go on-chain.
+
+Per-agent balance, daily limit, current-period spend, and per-payment cap live in **private state** and are threaded into the proof as witnesses. The circuit enforces them without any of those values touching the public ledger.
+
+**Enforced inside the zero-knowledge proof:**
 
 1. The payment amount is positive.
-2. The agent is registered.
-3. The invoice has not already been paid (replay protection).
-4. The agent's balance covers the amount.
-5. The payment is within the per-payment limit.
-6. The payment is within the rolling daily limit (`blockTimeGte` resets the period).
+2. The agent is a registered member (private Merkle path).
+3. The recipient is owner-allowlisted.
+4. The invoice has not already been paid (replay protection).
+5. `balance >= amount`, `amount <= perPaymentLimit`, and `spent + amount <= dailyLimit` — all against private witnesses.
 
-**What is hidden:** the secret itself, and the mapping from on-chain agent keys to real owners/agents. Nothing about who is behind a payment enters the proof.
+**Hidden:** the agent's secret, the mapping from commitment to identity, each agent's balance and spending policy, and which agent authorized a given payment.
 
-**What is public (by design):** settlement transactions, amounts, providers, and policy amounts under pseudonymous keys.
+**Public (by design):** settlement transactions, amounts, providers, the allowlist, invoice hashes, aggregate deposit/settlement totals, and the Merkle root.
 
-**Honest limit:** with a single depositor, timing and amount correlation can link payments — the same anonymity-set constraint as any pool-based privacy system.
+**Honest limits (so we do not overclaim):**
+
+- **Custodian trust.** Per-agent balances and limits are held by the Shade402 backend and reported to the circuit as private witnesses. The chain cannot independently verify them (and the compiler forbids time checks on private values, so period rollover is custodian-side). A dishonest or buggy custodian could misreport a balance; the contract still caps total outflow at its real token balance. Removing this trust is the next upgrade (see Roadmap).
+- **Anonymity-set size.** Payer–provider unlinkability depends on how many agents are registered. A payment proves "some registered agent paid", which is weak cover until the pool is large.
+- **Registration is observable.** Each `registerAgent` discloses a new commitment, so the size and timing of the agent pool are public.
+- **Amounts are public.** Only payer identity is hidden; the settlement amount and provider are visible by design.
 
 ## Security Model
 
-Shade402 is a Wave 1 prototype on testnet. This section documents what is enforced, and the known limitations, so judges and developers can evaluate it accurately.
+Shade402 is a Wave 1 prototype on testnet. This section documents what is enforced and the known limitations.
 
 **Enforced:**
 - Bearer-token authentication on all mutating API endpoints (`SHADE_API_TOKEN`, random per-run if unset).
 - CORS restricted to the dashboard origins (`SHADE_ALLOWED_ORIGINS`, defaults to localhost).
 - Payment recipients are derived from server-side resource definitions, never accepted from callers.
-- Input validation on all API parameters; error responses are sanitized.
-- Spending policy (per-payment cap, daily limit) is enforced on-chain by the contract and cannot be bypassed by the agent or the backend UI.
-- **Provider allowlist:** `payInvoice` only pays addresses the owner allowlisted on-chain — an agent cannot redirect funds to itself or arbitrary addresses (verified on-chain: self-pay attempt rejected with "Recipient is not an allowed provider").
-- **Owner-only admin circuits:** `allowProvider`, `revokeProvider`, and `withdraw` require the deployer's secret-derived owner key (verified: a non-owner secret is rejected with "Only the owner can call this circuit").
-- **Withdraw escape hatch:** the owner can withdraw contract funds back to their own wallet, so deposits are never locked.
-- Invoice replay protection on-chain (`usedInvoices` set).
+- Input validation on API parameters; error responses are sanitized.
+- **Owner-gated registration:** `registerAgent`, `allowProvider`, `revokeProvider`, and `withdraw` require the deployer's secret-derived owner key. (Owner-gating registration is necessary in v2: with private balances, open registration would let anyone claim an arbitrary private balance and drain the pool.)
+- **Provider allowlist:** `payInvoice` only pays allowlisted addresses — an agent cannot redirect funds to itself or an arbitrary address.
+- **Withdraw escape hatch:** the owner can withdraw contract funds, so deposits are never locked.
+- **Invoice replay protection** on-chain (`usedInvoices` set).
+- **Real solvency:** settlement uses `sendUnshielded` against the contract's actual balance.
 
 **Known limitations (demo scope, by design):**
 - **Single-custodian demo:** the backend holds the wallet and agent secret. In production, proof generation and private state belong in a user-controlled sidecar.
-- **Invoice authenticity:** the x402 provider is simulated; invoice hashes are generated by the demo backend and are not provider-signed. A production deployment requires provider signatures bound to the invoice.
+- **Invoice authenticity:** the x402 provider is simulated; invoice hashes are generated by the demo backend and are not provider-signed.
 - **No rate limiting** on the API.
 
 See the audit trail in the git history for the full review that produced this list.
 
+## Contract Circuits
+
+`contracts/shade402.compact` (Compact, language ≥ 0.23):
+
+| Circuit | Access | Purpose |
+| --- | --- | --- |
+| `registerAgent(dailyLimit, perPaymentLimit)` | owner | Inserts `H(secret)` commitment into the agents tree |
+| `allowProvider(provider)` | owner | Adds a payment recipient to the allowlist |
+| `revokeProvider(provider)` | owner | Removes a recipient from the allowlist |
+| `deposit(amount)` | anyone | Receives tNIGHT; increments the aggregate total |
+| `withdraw(amount, destination)` | owner | Returns contract funds to the owner |
+| `payInvoice(recipient, invoiceHash, amount)` | agent (proves membership) | Verifies membership, allowlist, replay, and private policy, then settles |
+
+Public ledger: `agents` (HistoricMerkleTree), `usedInvoices`, `allowedProviders`, `owner` (sealed), `lastSettledInvoice`, `totalSettledAmount`, `totalDeposited`. **Nothing per-agent.**
+
 ## Architecture
 
 ```text
-React dashboard (web/)
-      │  HTTP
+React dashboard (web/)  ── homepage + dashboard, URL routing
+      │  HTTP (JSON)
       ▼
 Backend service (src/server/) ─── simulated x402 provider
-      │  Midnight.js + wallet SDK
+      │  Midnight.js + wallet SDK        │
+      │  indexer (read-only)  ◀──────────┘  /api/tx/:id on-chain verifier
       ▼
-Shade402 Compact contract on Midnight (preview/preprod)
+Shade402 Compact contract on Midnight (preview / preprod)
       │  sendUnshielded
       ▼
 Provider receives settlement → releases the requested resource
@@ -71,7 +101,24 @@ Provider receives settlement → releases the requested resource
 
 - The agent never holds the owner's main wallet keys.
 - The contract is the payer of record, so the provider cannot link the settlement to the agent's identity.
-- Honest limit: with a single depositor, timing/amount correlation can still link payments — the same anonymity-set constraint as any pool-based privacy system. This is documented, not overclaimed.
+
+## API Endpoints
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/health` | — | Network + deployed contract address |
+| GET | `/api/stats` | — | Live on-chain totals (agents, settled, invoices) |
+| GET | `/api/wallet` | — | Deposit recipient + token type |
+| GET | `/api/agent` | — | Membership + private policy (custodian view) |
+| GET | `/api/tx/:id` | — | **Indexer-backed transaction verification** |
+| POST | `/api/agent/register` | token | Register an agent commitment |
+| POST | `/api/agent/deposit` | token | Credit an agent's private balance |
+| POST | `/api/owner/allow-provider` | token | Allowlist a provider |
+| POST | `/api/owner/withdraw` | token | Owner withdrawal |
+| POST | `/api/pay` | token | Run the full x402 settle flow |
+| GET | `/api/mock/resource` | — | Simulated protected resource (402 unless receipt) |
+
+`GET /api/tx/:id` accepts the transaction **identifier** returned by `/api/pay` and returns the ledger hash, block height, timestamp, and contract action, read straight from the Midnight indexer.
 
 ## Requirements
 
@@ -86,7 +133,7 @@ npm install
 npm test
 ```
 
-`npm test` runs the simulation and the unit tests. It needs no blockchain.
+`npm test` runs the offline simulation and the unit tests. It needs no blockchain.
 
 ## For Judges: 60-Second Evaluation Path
 
@@ -94,50 +141,43 @@ No wallet, faucet, or chain sync needed:
 
 ```bash
 npm install
-npm test                      # 10 unit tests + x402 simulation — no blockchain required
-npm run read-contract         # live on-chain state of the deployed contract (walletless, read-only)
+npm test                      # 11 unit tests + x402 simulation — no blockchain required
+npm run read-contract         # live on-chain state of the deployed contract (walletless)
 ```
 
-`read-contract` prints the deployed contract's public ledger: registered agents (as pseudonymous keys), allowlisted providers, and settlement totals — straight from the Midnight Preview indexer. It demonstrates both what is verifiable on-chain and, by absence, what is not: no owner or agent identities, no secrets.
+`read-contract` prints the deployed contract's public ledger: registered agent commitments, the tree root, allowlisted providers, and settlement totals — straight from the Midnight Preview indexer. It demonstrates both what is verifiable on-chain and, by absence, what is not: no per-agent balances, no limits, no history, no identities.
 
-To verify the full contract source, see `contracts/shade402.compact` (6 circuits, ~150 lines, heavily commented). The on-chain attack tests live in `scripts/verify-onchain.ts` (self-pay drain rejected, owner gate enforced, invoice replay rejected).
+To verify the contract source, see `contracts/shade402.compact` (6 circuits, heavily commented). The on-chain attack tests live in `scripts/verify-onchain.ts` (self-pay drain rejected, owner gate enforced, invoice replay rejected).
 
-To run the full end-to-end flow (wallet required, ~2 min first sync):
+To run the full end-to-end flow:
 
 ```bash
 npm run server      # backend on http://localhost:4000 (prints API token)
 npm run web         # dashboard on http://localhost:5173
 ```
 
-The dashboard asks for the API token printed at backend startup (a deliberate security feature — see the Security Model).
+`npm run server` and `npm run web` auto-deploy on first run if no deployment is on file. The dashboard uses the API token printed at backend startup (a deliberate security feature — see the Security Model). For a wallet-free demo, the dashboard can drive the live contract through the backend custodian wallet.
 
 ## Ecosystem Attribution
 
 Built with the Midnight ecosystem:
 
 - [Midnight documentation](https://docs.midnight.network/) — Compact language, ledger, and token references
-- [Midnight.js](https://github.com/midnightntwrk) SDK suite (`midnight-js-contracts`, wallet SDK 1.2.0, indexer, proof providers)
+- [Midnight.js](https://github.com/midnightntwrk) SDK suite (`midnight-js-contracts`, wallet SDK, indexer, proof providers)
 - Compact compiler 0.31.1 (`midnightntwrk/compact`)
 - Midnight public Preview testnet infrastructure (RPC, indexer, proof server)
-- [Midnight Academy](https://academy.midnight.network/) — patterns for pseudonymous-key contracts
+- [Midnight Explorer](https://preview.midnightexplorer.com/) (community, Tech-Expansion/TexLabs) for contract views
 
 ## Roadmap
 
-- **Wave 2 — private-state balances:** move per-agent balances and spend tracking from the public Map into Midnight private state (witness-maintained counters with commitments), so policy amounts leave the public ledger entirely. The current public-Map design mirrors Midnight's official examples (guest list, election); the upgrade keeps the same circuits and moves the data.
-- **Wave 2 — tiered discovery budgets:** let agents pay not-yet-allowlisted providers within a small, hard-capped "discovery budget" (e.g., 1 tNIGHT), restoring bounded autonomy for new x402 services while keeping the self-pay drain closed.
+- **Wave 2 — remove custodian trust:** move each agent's balance/limits into an on-chain **committed policy note** (spend-and-reissue with nullifiers), so the chain enforces `newBalance = oldBalance − amount` and cannot be misreported by the custodian.
+- **Wave 2 — tiered discovery budgets:** let agents pay not-yet-allowlisted providers within a small, hard-capped "discovery budget", restoring bounded autonomy for new x402 services while keeping the self-pay drain closed.
 - **Wave 3 — shielded settlement:** when Midnight supports third-party shielded delivery from contracts, upgrade `payInvoice` to shielded transfers so settlement amounts leave the public ledger. Tracked as a platform dependency.
 - **Wave 3 — agent-side SDK / MCP:** extract the Shade402 client into a sidecar so existing AI agents integrate natively instead of through the demo backend.
 
-To run the full stack against a deployed contract:
-
-```bash
-npm run server      # backend on http://localhost:4000
-npm run web         # React dashboard on http://localhost:5173
-```
-
 ## Deploying to a Midnight testnet
 
-Compile the contract (done in Codespace / a modern Linux host; the artifacts are committed):
+Compile the contract (done in a modern Linux host / Codespace; the artifacts are committed):
 
 ```bash
 npm run compile
@@ -148,8 +188,6 @@ Deploy (uses the wallet configured in `.midnight-state.json`; fund it with tNIGH
 ```bash
 npm run deploy -- --network preview
 ```
-
-The backend also auto-deploys on first run if no deployment is on file.
 
 ## Networks
 
@@ -167,25 +205,28 @@ Never use the local genesis seed on a public network.
 ```text
 shade402-app/
 ├── contracts/
-│   ├── shade402.compact          # Compact contract
+│   ├── shade402.compact          # Compact contract (v2)
 │   └── managed/shade402/         # generated artifacts (committed)
-├── scripts/e2e-check.ts          # on-chain smoke check
+├── scripts/
+│   ├── read-contract.ts          # walletless on-chain privacy proof
+│   ├── verify-onchain.ts         # on-chain attack tests
+│   └── seed-demo-agents.ts       # demo agent registration
 ├── src/
-│   ├── shade-client.ts           # witness + payload client
-│   ├── simulate-402.ts           # simulation
+│   ├── shade-client.ts           # witnesses + Merkle leaf + payload client
+│   ├── simulate-402.ts           # offline x402 simulation
 │   ├── deploy.ts                 # testnet deployment
 │   ├── cli.ts                    # interactive CLI
 │   ├── server/
-│   │   ├── index.ts              # backend API + contract wiring
+│   │   ├── index.ts              # backend API + contract wiring + /api/tx/:id
 │   │   └── mock-provider.ts      # simulated x402 provider
 │   ├── network.ts
 │   └── wallet.ts
-├── tests/                        # unit tests
-├── web/                          # React dashboard
+├── tests/                        # 11 unit tests
+├── web/                          # React dashboard + homepage
 ├── package.json
 └── tsconfig.json
 ```
 
 ## License
 
-Apache-2.0. This repository must be tagged with the `midnightntwrk` topic on GitHub for Buildathon eligibility.
+Apache-2.0. This repository is tagged with the `midnightntwrk` topic on GitHub for Buildathon eligibility.
