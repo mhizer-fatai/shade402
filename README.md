@@ -158,6 +158,15 @@ npm run web         # dashboard on http://localhost:5173
 
 `npm run server` and `npm run web` auto-deploy on first run if no deployment is on file. The dashboard uses the API token printed at backend startup (a deliberate security feature — see the Security Model). For a wallet-free demo, the dashboard can drive the live contract through the backend custodian wallet.
 
+To reset the demo to a fresh, **unregistered** agent (for example, to record a walkthrough that starts at registration), clear the local policy file and restart the backend with a new agent salt:
+
+```bash
+rm .shade402-policy-<network>.json        # clears local balance/spend
+SHADE402_AGENT_SALT=demo2 SHADE_API_TOKEN=shade402-demo-token npm run server
+```
+
+The **owner** secret is fixed (it must match the deployed owner gate); `SHADE402_AGENT_SALT` rotates only the paying agent's identity, so a new salt yields an agent that is not yet in the on-chain Merkle tree.
+
 ## Ecosystem Attribution
 
 Built with the Midnight ecosystem:

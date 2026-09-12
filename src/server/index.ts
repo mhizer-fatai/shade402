@@ -69,10 +69,18 @@ const ALLOWED_ORIGINS = (process.env.SHADE_ALLOWED_ORIGINS ?? 'http://localhost:
 // identity — its Merkle leaf is H("shade402:agent-leaf:v2" || agentSecret).
 // The agent's balance/policy bookkeeping lives in the client's private state
 // and is what the policy witnesses report during proof generation.
-const agentSecret = new Uint8Array(
+// Owner authority stays fixed (it must match the deployed owner gate); the
+// paying agent's identity is separate and rotates with SHADE402_AGENT_SALT so a
+// demo can start from an unregistered agent. The ownerSecret must remain the
+// deploy-time secret or the owner-gated circuits would reject us.
+const ownerSecret = new Uint8Array(
   createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
-const client = new Shade402Client(agentSecret);
+const AGENT_SALT = process.env.SHADE402_AGENT_SALT ?? 'demo-agent';
+const agentSecret = new Uint8Array(
+  createHash('sha256').update(`shade402:agent-secret:${SEED}:${AGENT_SALT}`).digest(),
+);
+const client = new Shade402Client(agentSecret, {}, ownerSecret);
 
 // Custodian policy bookkeeping persists across restart (it is private state:
 // balances/limits never go on-chain, so the custodian must remember them).
@@ -118,7 +126,7 @@ function savePolicy(): void {
   }
 }
 
-const privateState: ShadePrivateState = makePrivateState(agentSecret);
+const privateState: ShadePrivateState = makePrivateState(agentSecret, {}, ownerSecret);
 
 let walletCtx: WalletContext;
 let providers: Awaited<ReturnType<typeof createProviders>>;
