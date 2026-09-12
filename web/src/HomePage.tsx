@@ -1,7 +1,7 @@
 import { shortHash } from './api';
 import { useRevealOnScroll } from './useScrollFx';
 
-const CONTRACT_ADDRESS = 'e7c3e36771afb67235d5edb11a587afffc9422cca4e06c3d0b8fea73a16fe1d7';
+const CONTRACT_ADDRESS = '3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c';
 
 export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
   const containerRef = useRevealOnScroll();
@@ -146,11 +146,10 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
             A private spending account your agent can't outsmart
           </h2>
           <p className="section-paragraph reveal">
-            Shade402 turns agent payments into a zero-knowledge workflow. The owner funds a
-            private agent account and sets an on-chain spending policy. Every payment must
-            prove — without revealing anything — that it is funded and within policy. The
-            Shade402 contract is the visible payer, so providers never learn who is really
-            paying.
+            Shade402 turns agent payments into a zero-knowledge workflow. The owner deposits
+            funds and sets a private spending policy. Every payment must prove — without
+            revealing anything — that it is funded and within policy. The Shade402 contract
+            is the visible payer, so providers never learn who is really paying.
           </p>
           <div className="privacy-split reveal-stagger">
             <div className="privacy-col">
@@ -159,9 +158,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               </div>
               <ul className="privacy-list">
                 <li>The agent's secret (private witness)</li>
-                <li>Which real-world owner an agent key maps to</li>
-                <li>The link between on-chain keys and identities</li>
-                <li>Nothing about who is behind a payment enters the proof</li>
+                <li>Each agent's balance and spending policy</li>
+                <li>Which registered agent authorized a payment</li>
+                <li>The link between an agent's on-chain commitment and any identity</li>
               </ul>
             </div>
             <div className="privacy-col">
@@ -170,9 +169,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               </div>
               <ul className="privacy-list">
                 <li>Payments, amounts, and providers (by design)</li>
-                <li>Policy amounts under pseudonymous agent keys</li>
-                <li>That every payment was authorized within policy</li>
-                <li>No invoice is paid twice</li>
+                <li>An allowlist of owner-approved providers</li>
+                <li>That a payment came from some registered agent — not which</li>
+                <li>That every payment was authorized within policy, and no invoice is paid twice</li>
               </ul>
             </div>
           </div>
@@ -190,8 +189,9 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="step-body">
                 <h3 className="step-title">Register an agent</h3>
                 <p className="step-text">
-                  The owner creates an agent account with a spending policy: a daily limit
-                  and a per-payment cap, enforced by the Compact contract.
+                  The owner adds the agent as a commitment in an on-chain Merkle tree, and
+                  sets a private spending policy: a daily limit and a per-payment cap,
+                  enforced inside the zero-knowledge proof.
                 </p>
               </div>
             </div>
@@ -200,8 +200,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="step-body">
                 <h3 className="step-title">Deposit funds</h3>
                 <p className="step-text">
-                  The owner deposits tNIGHT into the agent's balance. The agent never
-                  holds the owner's wallet keys.
+                  The owner deposits tNIGHT into the Shade402 pool. The amount is public,
+                  but which agent it credits stays private.
                 </p>
               </div>
             </div>
@@ -317,21 +317,21 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="feature-number">A</div>
               <h3 className="feature-title">Compact smart contract</h3>
               <p className="feature-body">
-                Three circuits — <code className="inline-code">registerAgent</code>,{' '}
-                <code className="inline-code">deposit</code>, and{' '}
-                <code className="inline-code">payInvoice</code> — with per-agent policy,
-                replay protection, and native token settlement.
+                Circuits for registering agents, depositing, and settling invoices, plus an
+                owner-only provider allowlist and withdrawal. Replay protection and native
+                token settlement are enforced on-chain.
               </p>
             </div>
             <div className="feature-card">
               <div className="feature-number">B</div>
               <h3 className="feature-title">Dual-ledger privacy</h3>
               <p className="feature-body">
-                Balances and policies are recorded under a scrambled agent key
-                derived from a private secret — the key is unlinkable to any
-                identity, and the secret never appears on-chain. Settlements
-                happen on the public ledger, and zero-knowledge proofs carry
-                the authorization logic between the two.
+                Each agent is a commitment in an on-chain Merkle tree — not a key you can
+                trace. A payment proves, with a private Merkle path, that some registered
+                agent authorized it, without saying which. Balances and spending limits live
+                off-chain in private state and are checked inside the proof; the public
+                ledger holds only the provider allowlist, invoice hashes, and aggregate
+                totals.
               </p>
             </div>
             <div className="feature-card">
@@ -344,10 +344,12 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
             </div>
           </div>
           <p className="honest-note reveal">
-            Honest limits: payments, amounts, and providers are public by design, and
-            payer-provider unlinkability depends on the size of the agent pool — the same
-            anonymity-set trade-off as any pool-based privacy system. Live on Midnight
-            Preview: contract {shortHash(CONTRACT_ADDRESS, 10, 8)}.
+            Honest limits: payments, amounts, and providers are public by design.
+            Per-agent balances and limits are held by the Shade402 custodian and enforced
+            inside the proof — they are not stored on-chain, and the custodian is trusted to
+            report them honestly. Payer unlinkability also depends on the size of the agent
+            pool, the same anonymity-set trade-off as any pool-based privacy system. Live on
+            Midnight Preview: contract {shortHash(CONTRACT_ADDRESS, 10, 8)}.
           </p>
         </div>
       </section>

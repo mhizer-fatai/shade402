@@ -11,10 +11,10 @@
   --text: #1a2028;
   --text-secondary: #5a6472;
   --text-muted: #8a93a1;
-  /* Stitch reference indigo tokens */
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef2ff;
+  /* Deep blue accent tokens */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #e8f0fe;
   --accent-text-on: #ffffff;
   --success: #137333;
   --success-soft: #e6f4ea;
@@ -30,34 +30,33 @@
 }
 
 [data-theme='dark'] {
-  /* Dark theme — deep charcoal, not neon */
-  --bg: #101318;
-  --bg-grad-1: #141922;
-  --bg-grad-2: #0e1116;
-  --surface: #1a1f27;
-  --surface-2: #212834;
-  --surface-hover: #262e3b;
-  --border: #2a3240;
-  --border-strong: #3a4452;
-  --text: #e8ebf0;
-  --text-secondary: #a8b2c0;
-  --text-muted: #6f7a89;
-  /* Stitch reference indigo tokens (dark) */
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-soft: #1e2440;
-  --accent-text-on: #0f1420;
-  --success: #57c17c;
-  --success-soft: #132a1d;
-  --warning: #d3a94e;
-  --warning-soft: #33290f;
-  --danger: #e07b7e;
-  --danger-soft: #3a1d1f;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --nav-bg: rgba(16, 19, 24, 0.85);
-  --overlay: rgba(10, 12, 16, 0.6);
+  /* Dark theme — near-black deep blue, blue-gray panels, deep blue accent */
+  --bg: #05080f;
+  --bg-grad-1: #0a1322;
+  --bg-grad-2: #04060c;
+  --surface: #0b1220;
+  --surface-2: #101a2c;
+  --surface-hover: #16233a;
+  --border: #1a2740;
+  --border-strong: #293a5c;
+  --text: #eaf0f8;
+  --text-secondary: #9db0cc;
+  --text-muted: #64789b;
+  --accent: #2f6fed;
+  --accent-hover: #4f8cf7;
+  --accent-soft: #0e2246;
+  --accent-text-on: #ffffff;
+  --success: #45c78c;
+  --success-soft: #0c2419;
+  --warning: #d9ab4e;
+  --warning-soft: #2e2410;
+  --danger: #e5737a;
+  --danger-soft: #2e1518;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 18px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 14px 38px rgba(0, 0, 0, 0.55);
+  --nav-bg: rgba(5, 8, 15, 0.82);
+  --overlay: rgba(3, 5, 10, 0.65);
 }
 
 * {

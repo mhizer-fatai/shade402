@@ -6,11 +6,11 @@ const STORAGE_KEY = 'shade402-theme';
 
 export function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'light';
+    if (typeof window === 'undefined') return 'dark';
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
-    // Respect system preference on first visit
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    // Deep-blue dark theme is the default for Shade402.
+    return 'dark';
   });
 
   useEffect(() => {
