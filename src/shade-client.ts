@@ -4,10 +4,16 @@ import { persistentHash, CompactTypeBytes, CompactTypeVector } from '@midnight-n
 // Must match the contract's `persistentHash<Vector<2, Bytes<32>>>` for the
 // agent leaf in `shade402.compact` exactly — otherwise the JS-side leaf will
 // differ from the leaf the contract stores in the Merkle tree.
-const AGENT_LEAF_PREFIX = new Uint8Array([
-  115, 104, 97, 100, 101, 52, 48, 50, 58, 97, 103, 101, 110, 116, 45, 108,
-  101, 97, 102, 45, 118, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-]);
+//
+// Built from the string (rather than hand-typed bytes) so it cannot drift:
+// the contract uses pad(32, "shade402:agent-leaf:v2").
+function pad32(domain: string): Uint8Array {
+  const bytes = new Uint8Array(32);
+  bytes.set(Buffer.from(domain, 'utf8').subarray(0, 32));
+  return bytes;
+}
+
+const AGENT_LEAF_PREFIX = pad32('shade402:agent-leaf:v2');
 
 const agentLeafType = new CompactTypeVector(2, new CompactTypeBytes(32));
 

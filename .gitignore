@@ -63,3 +63,6 @@ temp/
 
 # Midnight private-state provider local data
 midnight-level-db/
+
+# Custodian policy bookkeeping (private state; never on-chain)
+.shade402-policy-*.json

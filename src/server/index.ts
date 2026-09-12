@@ -15,6 +15,7 @@ import express from 'express';
 import cors from 'cors';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 
@@ -26,7 +27,7 @@ import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, getDeployment, recordDeployment } from '../network.js';
 import { createWallet, persistWalletState, waitForCoreSync, type WalletContext } from '../wallet.js';
-import { Shade402Client, type ShadePrivateState, type InvoiceChallenge } from '../shade-client.js';
+import { Shade402Client, makePrivateState, type ShadePrivateState, type InvoiceChallenge } from '../shade-client.js';
 import { findResource, handleMockResource, RESOURCES } from './mock-provider.js';
 
 // @ts-expect-error wallet sync requires WebSocket
@@ -72,17 +73,52 @@ const agentSecret = new Uint8Array(
   createHash('sha256').update(`shade402:agent-secret:${SEED}`).digest(),
 );
 const client = new Shade402Client(agentSecret);
-const privateState: ShadePrivateState = {
-  ownerSecret: agentSecret,
-  agentSecret,
-  policy: {
-    balance: 0n,
-    dailyLimit: 0n,
-    spentInPeriod: 0n,
-    periodEndsAt: 0n,
-    perPaymentLimit: 0n,
-  },
-};
+
+// Custodian policy bookkeeping persists across restart (it is private state:
+// balances/limits never go on-chain, so the custodian must remember them).
+const POLICY_FILE = path.resolve(process.cwd(), `.shade402-policy-${network}.json`);
+
+function loadPolicy(): void {
+  try {
+    if (!fs.existsSync(POLICY_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf-8'));
+    client.setPolicy({
+      balance: BigInt(raw.balance ?? 0),
+      dailyLimit: BigInt(raw.dailyLimit ?? 0),
+      spentInPeriod: BigInt(raw.spentInPeriod ?? 0),
+      periodEndsAt: BigInt(raw.periodEndsAt ?? 0),
+      perPaymentLimit: BigInt(raw.perPaymentLimit ?? 0),
+    });
+    console.log(`[policy] loaded custodian policy from ${POLICY_FILE}`);
+  } catch (e: any) {
+    console.error('[policy] load failed:', e?.message ?? e);
+  }
+}
+
+function savePolicy(): void {
+  try {
+    const p = client.getPolicy();
+    fs.writeFileSync(
+      POLICY_FILE,
+      JSON.stringify(
+        {
+          balance: p.balance.toString(),
+          dailyLimit: p.dailyLimit.toString(),
+          spentInPeriod: p.spentInPeriod.toString(),
+          periodEndsAt: p.periodEndsAt.toString(),
+          perPaymentLimit: p.perPaymentLimit.toString(),
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+  } catch (e: any) {
+    console.error('[policy] save failed:', e?.message ?? e);
+  }
+}
+
+const privateState: ShadePrivateState = makePrivateState(agentSecret);
 
 let walletCtx: WalletContext;
 let providers: Awaited<ReturnType<typeof createProviders>>;
@@ -138,6 +174,7 @@ async function createProviders(ctx: WalletContext) {
 
 async function connect() {
   console.log(`Connecting to Shade402 on network: ${network}`);
+  loadPolicy();
   walletCtx = await createWallet({ network, networkConfig, seed: SEED });
   await waitForCoreSync(walletCtx);
   await persistWalletState(network, walletCtx);
@@ -302,8 +339,10 @@ app.post('/api/agent/register', requireAuth, async (req, res) => {
     const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + hours * 3600);
     client.setPolicy({ dailyLimit: dl, perPaymentLimit: pl, periodEndsAt });
     const tx = await deployed.callTx.registerAgent(dl, pl);
+    savePolicy();
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
-  } catch {
+  } catch (e: any) {
+    console.error('[registerAgent] failed:', e?.stack ?? e?.message ?? e);
     res.status(500).json({ error: 'Failed to register agent' });
   }
 });
@@ -325,8 +364,10 @@ app.post('/api/agent/deposit', requireAuth, async (req, res) => {
     const tx = await deployed.callTx.deposit(amount);
     const policy = client.getPolicy();
     client.setPolicy({ balance: policy.balance + amount });
+    savePolicy();
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight, amount: amount.toString() });
-  } catch {
+  } catch (e: any) {
+    console.error('[deposit] failed:', e?.stack ?? e?.message ?? e);
     res.status(500).json({ error: 'Failed to deposit' });
   }
 });
@@ -405,6 +446,7 @@ app.post('/api/pay', requireAuth, async (req, res) => {
       balance: policy.balance - amount,
       spentInPeriod: policy.spentInPeriod + amount,
     });
+    savePolicy();
     res.json({
       ok: true,
       invoiceId,
@@ -414,7 +456,8 @@ app.post('/api/pay', requireAuth, async (req, res) => {
       invoiceHash: Buffer.from(payload.invoiceHash).toString('hex'),
       receipt: `${tx.public.txId}:${invoiceId}`,
     });
-  } catch {
+  } catch (e: any) {
+    console.error('[pay] failed:', e?.stack ?? e?.message ?? e);
     res.status(500).json({ error: 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
   }
 });
