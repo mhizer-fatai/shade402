@@ -34,6 +34,18 @@ export interface PayResult {
   receipt: string;
 }
 
+export interface TxInfo {
+  ok: boolean;
+  network: string;
+  identifier: string;
+  id: number;
+  hash: string;
+  protocolVersion: number;
+  blockHeight: number | null;
+  timestamp: number | null;
+  contractActions: string[];
+}
+
 export interface MockResourceResult {
   ok: boolean;
   resource?: unknown;
@@ -65,4 +77,28 @@ export function shortHash(hash: string, head = 10, tail = 6): string {
   if (!hash) return '—';
   if (hash.length <= head + tail + 1) return hash;
   return `${hash.slice(0, head)}…${hash.slice(-tail)}`;
+}
+
+// Community Midnight Explorer (Tech-Expansion/TexLabs). Host is chosen per
+// network; override entirely with VITE_EXPLORER_URL.
+const EXPLORER_OVERRIDE = ((import.meta as any).env?.VITE_EXPLORER_URL as string | undefined)?.replace(
+  /\/+$/,
+  '',
+);
+const EXPLORER_HOSTS: Record<string, string> = {
+  preview: 'https://preview.midnightexplorer.com',
+  preprod: 'https://preprod.midnightexplorer.com',
+};
+
+function explorerBase(network?: string | null): string {
+  if (EXPLORER_OVERRIDE) return EXPLORER_OVERRIDE;
+  return EXPLORER_HOSTS[network ?? ''] ?? EXPLORER_HOSTS.preview;
+}
+
+export function explorerTxUrl(hash: string, network?: string | null): string {
+  return `${explorerBase(network)}/tx/${hash}`;
+}
+
+export function explorerContractUrl(address: string, network?: string | null): string {
+  return `${explorerBase(network)}/contracts/${address}`;
 }

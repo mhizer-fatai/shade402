@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import HomePage from './HomePage';
 import DashboardPage from './DashboardPage';
 import { useTheme } from './useTheme';
 import { useScrollProgress } from './useScrollFx';
-import { shortHash } from './api';
+import { shortHash, explorerContractUrl } from './api';
 import { useWallet } from './WalletContext';
 
 function MoonIcon() {
@@ -25,19 +25,45 @@ function SunIcon() {
 
 export type View = 'home' | 'dashboard';
 
+function viewFromPath(path: string): View {
+  return path.startsWith('/dashboard') ? 'dashboard' : 'home';
+}
+
 export default function App() {
   const [theme, toggleTheme] = useTheme();
-  const [view, setView] = useState<View>('home');
+  const [view, setView] = useState<View>(() =>
+    typeof window === 'undefined' ? 'home' : viewFromPath(window.location.pathname),
+  );
   const [contract, setContract] = useState<string | null>(null);
+  const [network, setNetwork] = useState<string | null>(null);
   const scrollProgress = useScrollProgress();
   const { connected, snapshot } = useWallet();
 
+  // Keep the view in sync with the URL so /dashboard is directly linkable and
+  // the browser back/forward buttons work.
+  useEffect(() => {
+    const onPop = () => setView(viewFromPath(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  function navigate(next: View) {
+    const path = next === 'dashboard' ? '/dashboard' : '/';
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    setView(next);
+  }
+
   // Lazily capture the contract address for the nav chip once we're in the dashboard.
   function handleLaunch() {
-    setView('dashboard');
+    navigate('dashboard');
     fetch('/api/health')
       .then((r) => r.json())
-      .then((j) => setContract(j?.contractAddress ?? null))
+      .then((j) => {
+        setContract(j?.contractAddress ?? null);
+        setNetwork(j?.network ?? null);
+      })
       .catch(() => {});
   }
 
@@ -50,7 +76,7 @@ export default function App() {
       )}
       <nav className="nav">
         <div className="nav-inner">
-          <button className="brand brand-button" onClick={() => setView('home')}>
+          <button className="brand brand-button" onClick={() => navigate('home')}>
             <div className="brand-glyph">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -61,7 +87,7 @@ export default function App() {
           <div className="nav-links">
             <button
               className={`nav-link ${view === 'home' ? 'active' : ''}`}
-              onClick={() => setView('home')}
+              onClick={() => navigate('home')}
             >
               Home
             </button>
@@ -74,15 +100,20 @@ export default function App() {
           </div>
           <div className="nav-right">
             {view === 'dashboard' && contract && !connected && (
-              <span className="wallet-chip">
+              <a
+                className="wallet-chip ext-link"
+                href={explorerContractUrl(contract, network)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <span className="dot" />
                 contract {shortHash(contract, 6, 4)}
-              </span>
+              </a>
             )}
             <button
               className={`nav-link ${connected ? '' : 'active'}`}
               onClick={() => {
-                if (!connected) setView('dashboard');
+                if (!connected) navigate('dashboard');
               }}
             >
               {connected ? (
@@ -109,8 +140,15 @@ export default function App() {
       {view === 'home' ? <HomePage onLaunch={handleLaunch} /> : <DashboardPage />}
 
       <footer className="footer">
-        Shade402 · Midnight Buildathon Wave 1 · Private, rule-controlled x402 payments for
-        AI agents
+        <p className="footer-copy">© 2026 Shade402. All rights reserved.</p>
+        <a
+          className="footer-link"
+          href="https://github.com/mhizer-fatai/shade402"
+          target="_blank"
+          rel="noreferrer"
+        >
+          GitHub
+        </a>
       </footer>
     </div>
   );

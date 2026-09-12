@@ -295,6 +295,51 @@ app.get('/api/stats', async (_req, res) => {
   }
 });
 
+// Read-only on-chain verification for a settled payment. The community
+// explorer doesn't index Preview transactions yet, so we read the
+// authoritative indexer directly. `:id` is the transaction identifier
+// returned by /api/pay (tx.public.txId).
+app.get('/api/tx/:id', async (req, res) => {
+  const id = String(req.params.id ?? '');
+  if (!/^[0-9a-fA-F]{2,128}$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid transaction identifier' });
+  }
+  const query = `query Tx($id: HexEncoded!) {
+    transactions(offset: { identifier: $id }) {
+      id
+      hash
+      protocolVersion
+      block { height timestamp }
+      contractActions { address }
+    }
+  }`;
+  try {
+    const r = await fetch(networkConfig.indexer, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { id } }),
+    });
+    const json: any = await r.json();
+    const tx = json?.data?.transactions?.[0];
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found on this network' });
+    }
+    res.json({
+      ok: true,
+      network,
+      identifier: id,
+      id: tx.id,
+      hash: tx.hash,
+      protocolVersion: tx.protocolVersion,
+      blockHeight: tx.block?.height ?? null,
+      timestamp: tx.block?.timestamp ?? null,
+      contractActions: (tx.contractActions ?? []).map((a: any) => a.address),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+});
+
 app.get('/api/agent', async (_req, res) => {
   try {
     const state = await providers.publicDataProvider.queryContractState(deploymentAddress());

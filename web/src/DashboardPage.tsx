@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { AgentInfo, HealthInfo, PayResult, MockResourceResult } from './api';
-import { api, shortHash, setApiToken, getApiToken } from './api';
+import { api, shortHash, setApiToken, getApiToken, explorerContractUrl, type TxInfo } from './api';
 import { useWallet } from './WalletContext';
 import ConnectWallet from './ConnectWallet';
 
@@ -30,6 +30,9 @@ export default function DashboardPage() {
   const [depositAmount, setDepositAmount] = useState('100');
   const [payPath, setPayPath] = useState(RESOURCES[0].path);
   const [resourceResult, setResourceResult] = useState<MockResourceResult | null>(null);
+  const [tx, setTx] = useState<{ loading: boolean; error: string | null; info: TxInfo | null } | null>(
+    null,
+  );
 
   // Demo mode: drive the live contract through the backend's custodian wallet,
   // so the whole flow works in the browser without Lace. The backend is the
@@ -172,6 +175,15 @@ export default function DashboardPage() {
         /* resource fetch optional for the demo */
       }
     });
+  }
+
+  // On-chain verification for a settlement, read from the indexer (the
+  // community explorer doesn't index Preview transactions yet).
+  function openTx(id: string) {
+    setTx({ loading: true, error: null, info: null });
+    api<TxInfo>(`/api/tx/${id}`)
+      .then((info) => setTx({ loading: false, error: null, info }))
+      .catch((e: any) => setTx({ loading: false, error: e?.message ?? String(e), info: null }));
   }
 
   const spent = agent?.spentInPeriod ? Number(agent.spentInPeriod) : 0;
@@ -501,7 +513,11 @@ export default function DashboardPage() {
                     <td className="mono">{shortHash(p.invoiceId, 14, 4)}</td>
                     <td className="mono">{p.amount} tNIGHT</td>
                     <td>{p.recipient}</td>
-                    <td className="mono">{shortHash(p.txId, 10, 6)}</td>
+                    <td className="mono">
+                      <button className="tx-link" onClick={() => openTx(p.txId)}>
+                        {shortHash(p.txId, 10, 6)}
+                      </button>
+                    </td>
                     <td>{p.time}</td>
                     <td>
                       <span className="chip chip-success">Settled</span>
@@ -514,6 +530,78 @@ export default function DashboardPage() {
         </div>
       </section>
         </>
+      )}
+
+      {tx && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setTx(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2 className="modal-title">On-chain verification</h2>
+              <button className="modal-close" onClick={() => setTx(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              {tx.loading && (
+                <div className="modal-loading">
+                  <span className="spinner" /> Reading the Midnight indexer…
+                </div>
+              )}
+              {tx.error && <p className="modal-error">{tx.error}</p>}
+              {tx.info && (
+                <>
+                  <div className="modal-row">
+                    <span>Status</span>
+                    <span className="chip chip-success">Confirmed</span>
+                  </div>
+                  <div className="modal-row">
+                    <span>Network</span>
+                    <span>{tx.info.network}</span>
+                  </div>
+                  <div className="modal-row">
+                    <span>Block</span>
+                    <span className="mono">#{tx.info.blockHeight ?? '—'}</span>
+                  </div>
+                  <div className="modal-row">
+                    <span>Time</span>
+                    <span>
+                      {tx.info.timestamp ? new Date(tx.info.timestamp).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                  <div className="modal-row">
+                    <span>Tx hash</span>
+                    <span className="mono modal-break">{tx.info.hash}</span>
+                  </div>
+                  {tx.info.contractActions.length > 0 && (
+                    <div className="modal-row">
+                      <span>Contract</span>
+                      <span className="mono modal-break">
+                        {shortHash(tx.info.contractActions[0], 12, 8)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="modal-actions">
+                    {health?.contractAddress && (
+                      <a
+                        className="btn btn-secondary btn-sm"
+                        href={explorerContractUrl(health.contractAddress, health?.network)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open contract on explorer ↗
+                      </a>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );

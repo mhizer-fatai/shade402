@@ -1,44 +1,137 @@
-import { shortHash } from './api';
+import { useEffect, useState } from 'react';
+import { api, shortHash, explorerContractUrl } from './api';
+import { useWallet } from './WalletContext';
 import { useRevealOnScroll } from './useScrollFx';
 
 const CONTRACT_ADDRESS = '3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c';
 
+interface Health {
+  network?: string;
+  contractAddress?: string;
+}
+
+interface Stats {
+  registeredAgents?: string;
+  invoicesSettled?: string;
+  totalSettled?: string;
+}
+
 export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
   const containerRef = useRevealOnScroll();
+  const { installed, wallets, connected, connecting, connect } = useWallet();
+  const [health, setHealth] = useState<Health | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  useEffect(() => {
+    api<Health>('/api/health')
+      .then(setHealth)
+      .catch(() => setHealth(null));
+    api<Stats>('/api/stats')
+      .then(setStats)
+      .catch(() => setStats(null));
+  }, []);
+
+  const live = Boolean(health?.contractAddress);
+  const network = health?.network ?? 'preview';
+
+  // Real action: connect Lace (if present) and drop straight into the dashboard.
+  // Without a wallet, fall through to the dashboard's own connect / demo flow.
+  function handleConnect() {
+    if (!connected && installed && wallets.length > 0) {
+      void connect(wallets[0].rdns).then(() => onLaunch());
+      return;
+    }
+    onLaunch();
+  }
 
   return (
     <div className="landing" ref={containerRef}>
       {/* ── Hero ── */}
-      <section className="hero">
-        <div className="hero-inner reveal-stagger revealed">
-          <span className="hero-eyebrow">Built on Midnight · x402 payment standard</span>
-          <h1 className="hero-title">
+      <div className="landing-frame">
+        <div className="landing-header">
+          <h1 className="landing-title">
             AI agents pay for APIs.
             <br />
-            <span className="hero-title-accent">Nobody sees who paid.</span>
+            <span className="landing-title-accent">Nobody sees who paid.</span>
           </h1>
-          <p className="hero-subtitle">
-            Shade402 is a private, rule-controlled payment layer for autonomous AI agents.
-            Your agent proves it is funded and within your spending policy — inside a
-            zero-knowledge proof — while the Shade402 contract settles the provider on-chain.
+          <p className="landing-subtitle">
+            Shade402 is a private, rule-controlled x402 payment layer for autonomous
+            agents. Funding, spending limits, and settlement are proven in zero-knowledge —
+            so providers get paid without ever learning which agent paid.
           </p>
-          <div className="hero-actions">
+          <div className="landing-actions">
             <button className="btn btn-primary btn-lg" onClick={onLaunch}>
               Launch dashboard
             </button>
-            <a className="btn btn-secondary btn-lg" href="#how-it-works">
-              How it works
-            </a>
+            <button
+              className="btn btn-secondary btn-lg"
+              onClick={handleConnect}
+              disabled={connecting}
+            >
+              {connected ? 'Wallet connected' : connecting ? 'Connecting…' : 'Connect wallet'}
+            </button>
           </div>
-          <div className="hero-meta">
-            <span>Compact smart contract</span>
-            <span className="hero-meta-dot" />
-            <span>Dual-blockchain privacy</span>
-            <span className="hero-meta-dot" />
-            <span>Apache-2.0 open source</span>
+          <div className="landing-meta">
+            <span className="landing-live-dot" />
+            <span>{live ? `Live on Midnight ${network}` : 'Backend unreachable'}</span>
+            {health?.contractAddress && (
+              <>
+                <span className="landing-meta-sep">·</span>
+                <a
+                  className="ext-link mono"
+                  href={explorerContractUrl(health.contractAddress, network)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {shortHash(health.contractAddress, 10, 8)}
+                </a>
+              </>
+            )}
           </div>
         </div>
-      </section>
+
+        <aside className="raffle-card" aria-label="Contract status">
+          <div className="raffle-card-head">Contract status</div>
+          <div className="raffle-body">
+            <p className="raffle-tag">Network · {network}</p>
+            <p className="raffle-status">{live ? 'Live' : 'Offline'}</p>
+            <p className="raffle-micro">
+              {health?.contractAddress ? (
+                <>
+                  Contract{' '}
+                  <a
+                    className="ext-link"
+                    href={explorerContractUrl(health.contractAddress, network)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {shortHash(health.contractAddress, 10, 8)}
+                  </a>
+                </>
+              ) : (
+                'Backend not reachable'
+              )}
+            </p>
+            <div className="raffle-stats">
+              <div className="raffle-stat">
+                <span className="raffle-stat-label">Agents</span>
+                <span className="raffle-stat-value">{stats?.registeredAgents ?? '—'}</span>
+              </div>
+              <div className="raffle-stat">
+                <span className="raffle-stat-label">Invoices</span>
+                <span className="raffle-stat-value">{stats?.invoicesSettled ?? '—'}</span>
+              </div>
+              <div className="raffle-stat">
+                <span className="raffle-stat-label">Settled</span>
+                <span className="raffle-stat-value">
+                  {stats?.totalSettled ?? '—'}
+                  <span className="raffle-stat-unit">tNIGHT</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       {/* ── Problem ── */}
       <section className="landing-section">
@@ -272,8 +365,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="step-body">
                 <h3 className="step-title">Register your agent</h3>
                 <p className="step-text">
-                  Set a daily limit and a per-payment cap. This policy is stored on-chain
-                  and the agent cannot override it.
+                  Set a daily limit and a per-payment cap. The policy is enforced privately
+                  inside the proof, and the agent cannot override it.
                 </p>
               </div>
             </div>
@@ -282,7 +375,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
               <div className="step-body">
                 <h3 className="step-title">Deposit testnet funds</h3>
                 <p className="step-text">
-                  Fund the agent's balance with tNIGHT from the wallet. This takes one
+                  Fund the Shade402 pool with tNIGHT from the wallet. This takes one
                   on-chain transaction.
                 </p>
               </div>
