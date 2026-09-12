@@ -33,7 +33,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
           <div className="hero-meta">
             <span>Compact smart contract</span>
             <span className="hero-meta-dot" />
-            <span>Dual-ledger privacy</span>
+            <span>Dual-blockchain privacy</span>
             <span className="hero-meta-dot" />
             <span>Apache-2.0 open source</span>
           </div>
@@ -49,7 +49,7 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
           </h2>
           <p className="section-paragraph reveal">
             Today, when an AI agent pays for an API, compute, or data, the transaction lands
-            on a public ledger. Over hundreds of small calls, that becomes a permanent,
+            on a public blockchain. Over hundreds of small calls, that becomes a permanent,
             linkable profile of what the agent does, how much it spends, and who owns it.
           </p>
           <div className="grid-3 reveal-stagger">
@@ -324,13 +324,13 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
             </div>
             <div className="feature-card">
               <div className="feature-number">B</div>
-              <h3 className="feature-title">Dual-ledger privacy</h3>
+              <h3 className="feature-title">Dual-blockchain privacy</h3>
               <p className="feature-body">
                 Each agent is a commitment in an on-chain Merkle tree — not a key you can
                 trace. A payment proves, with a private Merkle path, that some registered
                 agent authorized it, without saying which. Balances and spending limits live
                 off-chain in private state and are checked inside the proof; the public
-                ledger holds only the provider allowlist, invoice hashes, and aggregate
+                blockchain holds only the provider allowlist, invoice hashes, and aggregate
                 totals.
               </p>
             </div>
