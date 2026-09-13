@@ -52,12 +52,13 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
           <h1 className="landing-title">
             AI agents pay for APIs.
             <br />
-            <span className="landing-title-accent">Nobody sees who paid.</span>
+            <span className="landing-title-accent">Nobody on-chain sees who paid.</span>
           </h1>
           <p className="landing-subtitle">
             Shade402 is a private, rule-controlled x402 payment layer for autonomous
-            agents. Funding, spending limits, and settlement are proven in zero-knowledge —
-            so providers get paid without ever learning which agent paid.
+            agents. Funding, spending limits, and payment authorization are proven in
+            zero-knowledge — so providers get paid without ever learning which agent
+            paid.
           </p>
           <div className="landing-actions">
             <button className="btn btn-primary btn-lg" onClick={onLaunch}>
@@ -386,8 +387,8 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
                 <h3 className="step-title">Pay an x402 service</h3>
                 <p className="step-text">
                   Pick a protected resource — flight prices, market data, or AI inference.
-                  Watch the invoice, the private proof, the settlement, and the data
-                  release, end to end.
+                  Watch the challenge, the settlement, and the on-chain verification,
+                  end to end.
                 </p>
               </div>
             </div>
