@@ -1,5 +1,7 @@
 # Shade402
 
+![CI](https://github.com/mhizer-fatai/shade402/actions/workflows/ci.yml/badge.svg)
+
 Shade402 is a privacy-preserving HTTP 402 (x402) payment facilitator for autonomous AI agents, built on Midnight. An agent keeps a private balance and an owner-controlled spending policy, proves it is funded and within its rules inside a zero-knowledge proof, and the Shade402 contract pays the provider with an unshielded settlement. **The provider sees that Shade402 paid — never which agent.**
 
 - **Live on Midnight Preview:** contract `3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c`
