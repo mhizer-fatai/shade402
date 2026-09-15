@@ -25,8 +25,9 @@ export default function DashboardPage() {
   const [showRegister, setShowRegister] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
 
-  const [dailyLimit, setDailyLimit] = useState('1000');
-  const [perPaymentLimit, setPerPaymentLimit] = useState('200');
+  const [dailyLimit, setDailyLimit] = useState('30');
+  const [perPaymentLimit, setPerPaymentLimit] = useState('20');
+  const [agentNameInput, setAgentNameInput] = useState('Agent Alpha');
   const [depositAmount, setDepositAmount] = useState('100');
   const [payPath, setPayPath] = useState(RESOURCES[0].path);
   const [resourceResult, setResourceResult] = useState<MockResourceResult | null>(null);
@@ -66,9 +67,22 @@ export default function DashboardPage() {
     void refresh();
   }, [refresh]);
 
+  // Demo mode always pins the backend's demo token. A token left over from an
+  // earlier session would otherwise pass the "already set" check and silently
+  // 401 every authenticated call (this is exactly what broke registration).
+  useEffect(() => {
+    if (demoMode) {
+      setApiToken('shade402-demo-token');
+      setAuthed(true);
+    }
+  }, [demoMode]);
+
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
+    // Clear any stale deposit notice: otherwise "Deposit complete." would keep
+    // showing while a later action (register/pay) is still in progress.
+    setDepositMsg(null);
     try {
       await fn();
       await refresh();
@@ -83,7 +97,12 @@ export default function DashboardPage() {
     await run(() =>
       api('/api/agent/register', {
         method: 'POST',
-        body: JSON.stringify({ dailyLimit, perPaymentLimit, periodHours: 24 }),
+        body: JSON.stringify({
+          name: agentNameInput,
+          dailyLimit,
+          perPaymentLimit,
+          periodHours: 24,
+        }),
       }),
     );
     setShowRegister(false);
@@ -207,13 +226,9 @@ export default function DashboardPage() {
         <ConnectWallet
           onEnterDemo={() => {
             // Demo mode drives the live contract through the backend custodian
-            // wallet. The pinned localhost demo token is pre-seeded so the flow
-            // works with zero setup; the bearer-token auth stays enforced.
+            // wallet. The pinned demo token is applied by the effect above, so
+            // a stale token can never break the flow.
             window.localStorage.setItem('shade402-demo-mode', '1');
-            if (!getApiToken()) {
-              setApiToken('shade402-demo-token');
-              setAuthed(true);
-            }
             setDemoMode(true);
           }}
         />
@@ -296,6 +311,71 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {showRegister && (
+        <section className="section">
+          <div className="section-head">
+            <h2 className="section-title">Register agent</h2>
+          </div>
+          <div className="table-card" style={{ padding: 20 }}>
+            <div className="form-grid">
+              <div className="field">
+                <label>Agent name</label>
+                <input
+                  value={agentNameInput}
+                  onChange={(e) => setAgentNameInput(e.target.value)}
+                  placeholder="e.g. Agent Alpha"
+                />
+              </div>
+              <div className="field">
+                <label>Daily limit (tNIGHT)</label>
+                <input value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Per-payment cap (tNIGHT)</label>
+                <input value={perPaymentLimit} onChange={(e) => setPerPaymentLimit(e.target.value)} />
+              </div>
+            </div>
+            <div className="agent-actions">
+              <button className="btn btn-primary btn-sm" onClick={() => void register()} disabled={busy}>
+                Register on-chain
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowRegister(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {showDeposit && (
+        <section className="section">
+          <div className="section-head">
+            <h2 className="section-title">Deposit funds</h2>
+          </div>
+          <div className="table-card" style={{ padding: 20 }}>
+            <p className="page-subtitle" style={{ marginBottom: 16 }}>
+              {demoMode
+                ? "Deposits are funded from the demo custodian wallet. The deposit runs as a real on-chain transaction on Midnight Preview."
+                : "You approve this in your wallet. Shade402 then credits the amount to your agent's private spending account on-chain."}
+            </p>
+            <div className="form-grid">
+              <div className="field">
+                <label>Amount (tNIGHT)</label>
+                <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
+              </div>
+            </div>
+            <div className="agent-actions">
+              <button className="btn btn-primary btn-sm" onClick={() => void deposit()} disabled={busy}>
+                {demoMode ? "Deposit (demo custodian)" : "Sign & deposit in wallet"}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowDeposit(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="stats-row">
         <div className="stat-card">
           <div className="stat-label">Agent balance</div>
@@ -333,8 +413,8 @@ export default function DashboardPage() {
             <div className="agent-head">
               <div className="agent-avatar">A</div>
               <div className="agent-id">
-                <p className="agent-name">Agent Alpha</p>
-                <span className="agent-key">{shortHash(agent.agentKey, 12, 8)}</span>
+                <p className="agent-name">{agent.name || 'Agent Alpha'}</p>
+                <span className="agent-key">{shortHash(agent.agentLeaf, 12, 8)}</span>
               </div>
               <span className={`chip ${overLimit ? 'chip-warning' : 'chip-success'}`}>
                 {overLimit ? 'Limit reached' : 'Within policy'}
@@ -431,63 +511,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {showRegister && (
-        <section className="section">
-          <div className="section-head">
-            <h2 className="section-title">Register agent</h2>
-          </div>
-          <div className="table-card" style={{ padding: 20 }}>
-            <div className="form-grid">
-              <div className="field">
-                <label>Daily limit (tNIGHT)</label>
-                <input value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Per-payment cap (tNIGHT)</label>
-                <input value={perPaymentLimit} onChange={(e) => setPerPaymentLimit(e.target.value)} />
-              </div>
-            </div>
-            <div className="agent-actions">
-              <button className="btn btn-primary btn-sm" onClick={() => void register()} disabled={busy}>
-                Register on-chain
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowRegister(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {showDeposit && (
-        <section className="section">
-          <div className="section-head">
-            <h2 className="section-title">Deposit funds</h2>
-          </div>
-          <div className="table-card" style={{ padding: 20 }}>
-            <p className="page-subtitle" style={{ marginBottom: 16 }}>
-              {demoMode
-                ? "Deposits are funded from the demo custodian wallet. The deposit runs as a real on-chain transaction on Midnight Preview."
-                : "You approve this in your wallet. Shade402 then credits the amount to your agent's private spending account on-chain."}
-            </p>
-            <div className="form-grid">
-              <div className="field">
-                <label>Amount (tNIGHT)</label>
-                <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
-              </div>
-            </div>
-            <div className="agent-actions">
-              <button className="btn btn-primary btn-sm" onClick={() => void deposit()} disabled={busy}>
-                {demoMode ? "Deposit (demo custodian)" : "Sign & deposit in wallet"}
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowDeposit(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
       <section className="section">
         <div className="section-head">
           <h2 className="section-title">Recent activity</h2>
@@ -520,7 +543,8 @@ export default function DashboardPage() {
                     </td>
                     <td>{p.time}</td>
                     <td>
-                      <span className="chip chip-success">Settled</span>
+                      <span className="chip chip-success">Settled</span>{' '}
+                      <span className="chip chip-neutral">Payer private</span>
                     </td>
                   </tr>
                 ))}
@@ -585,6 +609,14 @@ export default function DashboardPage() {
                       </span>
                     </div>
                   )}
+                  <div className="modal-privacy">
+                    <p className="modal-privacy-title">Privacy of this payment</p>
+                    <ul className="modal-privacy-list">
+                      <li>Paid by the Shade402 contract — not by the agent</li>
+                      <li>No agent identity, balance, or policy on-chain</li>
+                      <li>Authorization proven with a private Merkle path</li>
+                    </ul>
+                  </div>
                   <div className="modal-actions">
                     {health?.contractAddress && (
                       <a

@@ -1,6 +1,7 @@
 export interface AgentInfo {
   registered: boolean;
-  agentKey: string;
+  agentLeaf: string;
+  name?: string | null;
   balance?: string;
   dailyLimit?: string;
   spentInPeriod?: string;

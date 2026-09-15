@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api, shortHash, explorerContractUrl } from './api';
-import { useWallet } from './WalletContext';
 import { useRevealOnScroll } from './useScrollFx';
 
 const CONTRACT_ADDRESS = '3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666eae5614be7c';
@@ -16,9 +15,14 @@ interface Stats {
   totalSettled?: string;
 }
 
-export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
+export default function HomePage({
+  onLaunch,
+  onTryIt,
+}: {
+  onLaunch: () => void;
+  onTryIt: () => void;
+}) {
   const containerRef = useRevealOnScroll();
-  const { installed, wallets, connected, connecting, connect } = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
 
@@ -33,16 +37,6 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
 
   const live = Boolean(health?.contractAddress);
   const network = health?.network ?? 'preview';
-
-  // Real action: connect Lace (if present) and drop straight into the dashboard.
-  // Without a wallet, fall through to the dashboard's own connect / demo flow.
-  function handleConnect() {
-    if (!connected && installed && wallets.length > 0) {
-      void connect(wallets[0].rdns).then(() => onLaunch());
-      return;
-    }
-    onLaunch();
-  }
 
   return (
     <div className="landing" ref={containerRef}>
@@ -61,15 +55,11 @@ export default function HomePage({ onLaunch }: { onLaunch: () => void }) {
             paid.
           </p>
           <div className="landing-actions">
-            <button className="btn btn-primary btn-lg" onClick={onLaunch}>
-              Launch dashboard
+            <button className="btn btn-primary btn-lg" onClick={onTryIt}>
+              Try it — no wallet needed
             </button>
-            <button
-              className="btn btn-secondary btn-lg"
-              onClick={handleConnect}
-              disabled={connecting}
-            >
-              {connected ? 'Wallet connected' : connecting ? 'Connecting…' : 'Connect wallet'}
+            <button className="btn btn-secondary btn-lg" onClick={onLaunch}>
+              Launch dashboard
             </button>
           </div>
           <div className="landing-meta">

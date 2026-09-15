@@ -86,6 +86,10 @@ const client = new Shade402Client(agentSecret, {}, ownerSecret);
 // balances/limits never go on-chain, so the custodian must remember them).
 const POLICY_FILE = path.resolve(process.cwd(), `.shade402-policy-${network}.json`);
 
+// Display name for the agent (custodian-side cosmetic; not part of the ZK
+// policy and never sent on-chain).
+let agentName: string | null = null;
+
 function loadPolicy(): void {
   try {
     if (!fs.existsSync(POLICY_FILE)) return;
@@ -97,6 +101,7 @@ function loadPolicy(): void {
       periodEndsAt: BigInt(raw.periodEndsAt ?? 0),
       perPaymentLimit: BigInt(raw.perPaymentLimit ?? 0),
     });
+    agentName = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : null;
     console.log(`[policy] loaded custodian policy from ${POLICY_FILE}`);
   } catch (e: any) {
     console.error('[policy] load failed:', e?.message ?? e);
@@ -115,6 +120,7 @@ function savePolicy(): void {
           spentInPeriod: p.spentInPeriod.toString(),
           periodEndsAt: p.periodEndsAt.toString(),
           perPaymentLimit: p.perPaymentLimit.toString(),
+          name: agentName,
         },
         null,
         2,
@@ -362,6 +368,7 @@ app.get('/api/agent', async (_req, res) => {
     res.json({
       registered: inTree,
       agentLeaf: Buffer.from(leaf).toString('hex'),
+      name: agentName,
       balance: policy.balance.toString(),
       dailyLimit: policy.dailyLimit.toString(),
       spentInPeriod: policy.spentInPeriod.toString(),
@@ -375,7 +382,7 @@ app.get('/api/agent', async (_req, res) => {
 
 app.post('/api/agent/register', requireAuth, async (req, res) => {
   try {
-    const { dailyLimit, perPaymentLimit, periodHours } = req.body ?? {};
+    const { dailyLimit, perPaymentLimit, periodHours, name } = req.body ?? {};
     const dl = BigInt(dailyLimit);
     const pl = BigInt(perPaymentLimit);
     if (dl <= 0n || pl <= 0n || pl > dl) {
@@ -384,6 +391,9 @@ app.post('/api/agent/register', requireAuth, async (req, res) => {
     const hours = Number(periodHours ?? 24);
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) {
       return res.status(400).json({ error: 'periodHours must be between 1 and 720' });
+    }
+    if (typeof name === 'string' && name.trim()) {
+      agentName = name.trim().slice(0, 48);
     }
     // v2: the on-chain circuit stores only the Merkle leaf and enforces the
     // owner gate + limit sanity. The actual policy (daily limit, per-payment
@@ -511,7 +521,20 @@ app.post('/api/pay', requireAuth, async (req, res) => {
     });
   } catch (e: any) {
     console.error('[pay] failed:', e?.stack ?? e?.message ?? e);
-    res.status(500).json({ error: 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
+    // Surface the exact circuit assertion when the rejection came from the
+    // proof/policy checks, so callers see *which* rule was enforced.
+    const raw = `${e?.message ?? ''} ${e?.cause?.message ?? ''}`;
+    const known = [
+      'Payment exceeds daily limit',
+      'Payment exceeds per-payment limit',
+      'Insufficient agent balance',
+      'Invoice has already been paid',
+      'Recipient is not an allowed provider',
+      'Agent is not registered',
+    ].find((m) => raw.includes(m));
+    res
+      .status(500)
+      .json({ error: known ?? 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
   }
 });
 

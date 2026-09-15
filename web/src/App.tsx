@@ -47,6 +47,12 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // Every view change starts at the top of the page: the homepage is long, and
+  // the dashboard must never open mid-scroll.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view]);
+
   function navigate(next: View) {
     const path = next === 'dashboard' ? '/dashboard' : '/';
     if (window.location.pathname !== path) {
@@ -65,6 +71,13 @@ export default function App() {
         setNetwork(j?.network ?? null);
       })
       .catch(() => {});
+  }
+
+  // Demo-first entry: the dashboard drives the live contract through the backend
+  // custodian wallet, so no browser wallet is needed to try Shade402.
+  function tryIt() {
+    window.localStorage.setItem('shade402-demo-mode', '1');
+    navigate('dashboard');
   }
 
   return (
@@ -113,7 +126,7 @@ export default function App() {
             <button
               className={`nav-link ${connected ? '' : 'active'}`}
               onClick={() => {
-                if (!connected) navigate('dashboard');
+                if (!connected) tryIt();
               }}
             >
               {connected ? (
@@ -122,7 +135,7 @@ export default function App() {
                   {snapshot?.unshieldedAddress ? shortHash(snapshot.unshieldedAddress, 8, 6) : 'Connected'}
                 </span>
               ) : (
-                'Connect Wallet'
+                'Try it'
               )}
             </button>
             <button
@@ -137,7 +150,7 @@ export default function App() {
         </div>
       </nav>
 
-      {view === 'home' ? <HomePage onLaunch={handleLaunch} /> : <DashboardPage />}
+      {view === 'home' ? <HomePage onLaunch={handleLaunch} onTryIt={tryIt} /> : <DashboardPage />}
 
       <footer className="footer">
         <p className="footer-copy">© 2026 Shade402. All rights reserved.</p>
