@@ -136,6 +136,9 @@ export default function DashboardPage() {
           method: 'POST',
           body: JSON.stringify({ amount: depositAmount }),
         });
+        // Refresh before reporting success: without this the card kept showing
+        // the old balance, so a successful deposit looked like a no-op.
+        await refresh();
         setDepositMsg('Deposit complete.');
         setShowDeposit(false);
         return;
