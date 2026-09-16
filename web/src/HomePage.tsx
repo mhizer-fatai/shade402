@@ -7,6 +7,7 @@ const CONTRACT_ADDRESS = '3a261d47e32096ff41d228f16440e8dfea7292fdc12ec4bb7e666e
 interface Health {
   network?: string;
   contractAddress?: string;
+  walletReady?: boolean;
 }
 
 interface Stats {
@@ -98,6 +99,12 @@ export default function HomePage({
                   >
                     {shortHash(health.contractAddress, 10, 8)}
                   </a>
+                  {health.walletReady === false && (
+                    <>
+                      {' '}
+                      · <span>wallet syncing…</span>
+                    </>
+                  )}
                 </>
               ) : (
                 'Backend not reachable'

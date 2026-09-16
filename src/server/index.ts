@@ -56,7 +56,8 @@ const API_TOKEN = process.env.SHADE_API_TOKEN ?? createHash('sha256')
 
 const ALLOWED_ORIGINS = (process.env.SHADE_ALLOWED_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173')
   .split(',')
-  .map((s) => s.trim())
+  // Trailing slashes never match a browser Origin header, so strip them.
+  .map((s) => s.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
 {
@@ -138,6 +139,16 @@ let walletCtx: WalletContext;
 let providers: Awaited<ReturnType<typeof createProviders>>;
 let deployed: any;
 let ledger: (state: unknown) => any;
+
+// Indexer-only reads (health, stats, membership, tx lookup) work without the
+// wallet, so they stay available while the wallet syncs on a cold start.
+let readProvider: ReturnType<typeof indexerPublicDataProvider> | null = null;
+
+function publicData() {
+  const p = providers?.publicDataProvider ?? readProvider;
+  if (!p) throw new Error('Indexer provider not initialised yet');
+  return p;
+}
 
 async function loadLedger() {
   const module = await import(pathToFileURL(contractPath).href);
@@ -260,22 +271,29 @@ app.use(
       // Allow non-browser tools (curl, server-to-server) which send no Origin.
       if (!origin) return callback(null, true);
       if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+      // Reject by omitting the CORS header rather than throwing: a thrown error
+      // surfaces as a 500 HTML page, hiding the real cause (origin not allowed).
+      console.warn(`[cors] blocked origin: ${origin}`);
+      return callback(null, false);
     },
   }),
 );
 app.use(express.json());
 
-// Until the wallet has synced and the contract is connected, report a clear
-// "starting" state instead of failing with undefined-provider errors.
-app.use('/api', (_req, res, next) => {
-  if (!ready) {
-    res
-      .status(503)
-      .json({ error: 'Backend is starting up (wallet sync). Retry in about a minute.' });
-    return;
-  }
-  next();
+// Wallet-dependent calls (registration, deposits, payments) wait for the wallet
+// sync; indexer-only reads stay available so the hosted site shows live data
+// during a cold start.
+const READ_ONLY_PATHS = ['/api/health', '/api/stats', '/api/agent', '/api/wallet', '/api/tx'];
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  const isReadOnly = READ_ONLY_PATHS.some(
+    (p) => req.path === p || req.path.startsWith(`${p}/`),
+  );
+  if (ready || isReadOnly) return next();
+  res
+    .status(503)
+    .json({ error: 'Backend is starting up (wallet sync). Retry in about a minute.' });
 });
 
 // Bearer-token authentication for every mutating endpoint.
@@ -289,7 +307,26 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, network, contractAddress: getDeployment(network)?.address ?? null });
+  res.json({
+    ok: true,
+    network,
+    contractAddress: getDeployment(network)?.address ?? null,
+    walletReady: ready,
+  });
+});
+
+// Friendly root: the platform URL is the first thing people open, and a bare
+// Express 404 reads as "broken". Report service status instead.
+app.get('/', (_req, res) => {
+  res.json({
+    service: 'Shade402 backend',
+    status: ready ? 'ready' : 'starting (wallet sync)',
+    network,
+    contractAddress: getDeployment(network)?.address ?? null,
+    walletReady: ready,
+    app: 'https://shade402.netlify.app',
+    endpoints: ['/api/health', '/api/stats', '/api/agent', '/api/tx/:id'],
+  });
 });
 
 // Public wallet info the frontend needs to build a real user-signed deposit:
@@ -308,7 +345,7 @@ app.get('/api/wallet', (_req, res) => {
 // Live protocol stats read straight from the contract's public ledger.
 app.get('/api/stats', async (_req, res) => {
   try {
-    const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
+    const state = await publicData().queryContractState(deploymentAddress());
     if (!state) return res.status(404).json({ error: 'No contract state' });
     const l = ledger(state.data);
     res.json({
@@ -373,7 +410,7 @@ app.get('/api/tx/:id', async (req, res) => {
 
 app.get('/api/agent', async (_req, res) => {
   try {
-    const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
+    const state = await publicData().queryContractState(deploymentAddress());
     if (!state) return res.status(404).json({ error: 'No contract state' });
     const l = ledger(state.data);
     // Membership: does the agent's leaf sit in the on-chain Merkle tree? The
@@ -566,6 +603,11 @@ async function main() {
       console.log('  (token is random per run — set SHADE_API_TOKEN to pin it)');
     }
   });
+
+  // Indexer-only reads need no wallet: wire them first so the hosted site shows
+  // live contract data while the wallet syncs.
+  readProvider = indexerPublicDataProvider(networkConfig.indexer, networkConfig.indexerWS);
+  ledger = await loadLedger();
 
   await connect();
   ready = true;
