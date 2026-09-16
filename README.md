@@ -211,6 +211,10 @@ Public test networks use **hosted** node, indexer, and proof server — no local
 
 Never use the local genesis seed on a public network.
 
+### Hosted deployments
+
+The backend can restore the wallet from a committed sync checkpoint (`.midnight-wallet-state/`) instead of syncing Preview from genesis, so a hosted instance (Render, Fly, Railway) reaches "ready" in seconds rather than minutes after a cold start. It is testnet-only state for the public burner wallet; delete the directory to force a full sync.
+
 ## Project Structure
 
 ```text

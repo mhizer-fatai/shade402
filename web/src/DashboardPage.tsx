@@ -27,7 +27,7 @@ export default function DashboardPage() {
 
   const [dailyLimit, setDailyLimit] = useState('30');
   const [perPaymentLimit, setPerPaymentLimit] = useState('20');
-  const [agentNameInput, setAgentNameInput] = useState('Agent Alpha');
+  const [agentNameInput, setAgentNameInput] = useState('');
   const [depositAmount, setDepositAmount] = useState('100');
   const [payPath, setPayPath] = useState(RESOURCES[0].path);
   const [resourceResult, setResourceResult] = useState<MockResourceResult | null>(null);
@@ -94,6 +94,10 @@ export default function DashboardPage() {
   }
 
   async function register() {
+    if (walletSyncing) {
+      setError('Backend wallet is still syncing — registering becomes available once it finishes.');
+      return;
+    }
     await run(() =>
       api('/api/agent/register', {
         method: 'POST',
@@ -109,6 +113,10 @@ export default function DashboardPage() {
   }
 
   async function deposit() {
+    if (walletSyncing) {
+      setError('Backend wallet is still syncing — deposits become available once it finishes.');
+      return;
+    }
     if (!active) {
       setError('Connect your wallet or enter demo mode first.');
       return;
@@ -169,6 +177,10 @@ export default function DashboardPage() {
   }
 
   async function pay() {
+    if (walletSyncing) {
+      setError('Backend wallet is still syncing — payments become available once it finishes.');
+      return;
+    }
     setResourceResult(null);
     await run(async () => {
       const result = await api<PayResult>('/api/pay', {
@@ -204,6 +216,10 @@ export default function DashboardPage() {
       .then((info) => setTx({ loading: false, error: null, info }))
       .catch((e: any) => setTx({ loading: false, error: e?.message ?? String(e), info: null }));
   }
+
+  // The hosted backend syncs its wallet on first boot; mutations stay
+  // unavailable until it reports ready.
+  const walletSyncing = health?.walletReady === false;
 
   const spent = agent?.spentInPeriod ? Number(agent.spentInPeriod) : 0;
   const limit = agent?.dailyLimit ? Number(agent.dailyLimit) : 0;
@@ -311,6 +327,19 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {walletSyncing && (
+        <div className="demo-banner">
+          <div className="demo-banner-head">
+            <span className="chip chip-warning">Backend syncing</span>
+            <span className="demo-banner-note">
+              The hosted backend is syncing its Midnight wallet after a deploy. Live data and
+              the on-chain verifier already work; registering, deposits and payments become
+              available as soon as the sync finishes (first boot can take a few minutes).
+            </span>
+          </div>
+        </div>
+      )}
+
       {showRegister && (
         <section className="section">
           <div className="section-head">
@@ -413,11 +442,15 @@ export default function DashboardPage() {
             <div className="agent-head">
               <div className="agent-avatar">A</div>
               <div className="agent-id">
-                <p className="agent-name">{agent.name || 'Agent Alpha'}</p>
+                <p className="agent-name">{agent.name || 'Unnamed agent'}</p>
                 <span className="agent-key">{shortHash(agent.agentLeaf, 12, 8)}</span>
               </div>
-              <span className={`chip ${overLimit ? 'chip-warning' : 'chip-success'}`}>
-                {overLimit ? 'Limit reached' : 'Within policy'}
+              <span
+                className={`chip ${
+                  limit <= 0 ? 'chip-neutral' : overLimit ? 'chip-warning' : 'chip-success'
+                }`}
+              >
+                {limit <= 0 ? 'No spending policy here' : overLimit ? 'Limit reached' : 'Within policy'}
               </span>
             </div>
 
