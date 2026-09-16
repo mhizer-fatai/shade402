@@ -3,6 +3,11 @@
   command = "npm run build"
   publish = "dist"
 
+# Netlify build settings, versioned with the code (no UI setup needed).
+# VITE_API_URL will be added here once the Render backend URL is known.
+[build.environment]
+  NODE_VERSION = "22"
+
 # SPA fallback: the app uses real URL paths (/dashboard), so deep links and
 # refreshes must serve index.html instead of 404ing.
 [[redirects]]
