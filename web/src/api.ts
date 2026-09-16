@@ -52,15 +52,32 @@ export interface MockResourceResult {
   resource?: unknown;
 }
 
+/** Token used by demo mode; the backend is started with this pinned. */
+export const DEMO_API_TOKEN = 'shade402-demo-token';
+
+function currentToken(): string {
+  return window.localStorage.getItem('shade402-api-token') ?? '';
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = window.localStorage.getItem('shade402-api-token') ?? '';
-  const res = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...init,
-  });
+  const attempt = (token: string) =>
+    fetch(path, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...init,
+    });
+
+  let res = await attempt(currentToken());
+
+  // Demo-mode self-heal: a token left over from an earlier session must never
+  // brick the demo. Pin the demo token and retry once.
+  if (res.status === 401 && window.localStorage.getItem('shade402-demo-mode') === '1') {
+    setApiToken(DEMO_API_TOKEN);
+    res = await attempt(DEMO_API_TOKEN);
+  }
+
   const json = await res.json();
   if (!res.ok) throw new Error((json as any).error ?? `Request failed: ${res.status}`);
   return json as T;

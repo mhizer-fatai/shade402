@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { AgentInfo, HealthInfo, PayResult, MockResourceResult } from './api';
-import { api, shortHash, setApiToken, getApiToken, explorerContractUrl, type TxInfo } from './api';
+import { api, shortHash, setApiToken, getApiToken, explorerContractUrl, DEMO_API_TOKEN, type TxInfo } from './api';
 import { useWallet } from './WalletContext';
 import ConnectWallet from './ConnectWallet';
 
@@ -72,7 +72,7 @@ export default function DashboardPage() {
   // 401 every authenticated call (this is exactly what broke registration).
   useEffect(() => {
     if (demoMode) {
-      setApiToken('shade402-demo-token');
+      setApiToken(DEMO_API_TOKEN);
       setAuthed(true);
     }
   }, [demoMode]);
