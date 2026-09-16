@@ -13,6 +13,7 @@ export interface HealthInfo {
   ok: boolean;
   network: string;
   contractAddress: string | null;
+  walletReady?: boolean;
 }
 
 export interface StatsInfo {
