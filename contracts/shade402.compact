@@ -2,32 +2,46 @@ pragma language_version >= 0.23;
 
 import CompactStandardLibrary;
 
-// Shade402 v2 — private payer identity for x402-style agent payments.
+// Shade402 v3 — on-chain committed policy notes (Wave 2).
 //
-// Wave-1 security invariants preserved: owner-gated provider allowlist,
-// owner-only withdraw, on-chain invoice replay, allowlisted recipients.
+// Removes the custodian trust gap that v2 documented: per-agent balance and
+// spend are no longer free-floating witnesses reported by the backend. Each
+// agent's policy lives in a commitment ("note") held in an append-only Merkle
+// tree, and every state change consumes the current note by publishing a
+// nullifier and appending a fresh note that proves, inside the circuit:
 //
-// Privacy upgrade (v2): the public `agents: Map` is GONE. Per-agent balance
-// and policy now live in the agent's private state (off-chain, threaded via
-// witnesses). On-chain we keep only a HistoricMerkleTree whose leaves are
-// H("shade402:agent-leaf:v2" || agentSecret). A payment proves membership in
-// that tree with a private Merkle path — the chain learns that *some
-// registered agent* paid, never which one, its balance, or its history.
+//     newBalance = oldBalance - amount
+//     newSpent   = oldSpent   + amount
 //
-// What is public (by design): provider allowlist, invoice replay hashes,
-// aggregate deposit/settlement totals, the tree root. What is hidden: the
-// payer's identity, balance, per-agent history, and the secret itself.
+// Because every note descends from a real deposit (or from registration with a
+// zero balance), a fabricated balance has no note to spend, a reused note is
+// rejected by the nullifier set, and the daily limit is genuinely cumulative
+// rather than custodian-reported.
 //
-// Honest scope (v2): per-agent balance, daily-limit, and period state live in
-// the agent's private state and are enforced in-ZK against the values the
-// custodian reports (the chain cannot time-check private state, and does not
-// store it). The contract itself enforces: agent membership (Merkle),
-// owner allowlist, invoice replay, and real-money solvency via sendUnshielded
-// against the contract's actual balance. Fully on-chain per-agent policy
-// with unlinkable history is the shielded-state (coin) upgrade.
+// What stays public by design: settlement amounts, recipients, the provider
+// allowlist, invoice hashes, aggregate totals, the identity tree root and the
+// policy-note tree root. What stays hidden: the agent secret, which note is
+// current, and every note field (balance, spend, limits, period end, nonce).
+//
+// Honest scope: the period end is passed as a *public* circuit parameter for
+// the rollover time check (the compiler forbids time checks on private witness
+// data), so it is disclosed; the proof binds that public value to the committed
+// note. Custody of the agent secret still sits with the backend in this demo,
+// but the backend can no longer invent a balance or bypass a limit.
 
-// Public ledger — minimal, nothing per-agent.
+// ─── Public ledger ──────────────────────────────────────────────────────────
+
+// Identity commitments: H("shade402:agent-leaf:v2" || agentSecret). Unchanged
+// from v2 so the existing privacy properties do not regress.
 export ledger agents: HistoricMerkleTree<16, Bytes<32>>;
+
+// Policy notes: H(domain || agentSecret || note fields). One live note per
+// agent; spent notes stay in the tree but can never be used again.
+export ledger notes: HistoricMerkleTree<16, Bytes<32>>;
+
+// Nullifiers of consumed policy notes.
+export ledger usedNullifiers: Set<Bytes<32>>;
+
 export ledger usedInvoices: Set<Bytes<32>>;
 export ledger allowedProviders: Set<UserAddress>;
 export sealed ledger owner: Bytes<32>;
@@ -35,31 +49,36 @@ export ledger lastSettledInvoice: Bytes<32>;
 export ledger totalSettledAmount: Uint<64>;
 export ledger totalDeposited: Uint<64>;
 
-// Private witnesses.
-// localSecret: the deployer's secret (owner authority, same as v1).
-// agentSecret: the paying agent's secret — supplies the identity commitment.
-// agentPath:    private Merkle path proving the agent's leaf is in the tree.
-// The AgentState scalars are the agent's private policy/balance, read from
-// the custodian-held private state so the circuit can enforce policy in-ZK
-// without any of it touching the public ledger.
-//
-// NOTE on period rollover: spentInPeriod / dailyLimit are private values, so
-// the circuit cannot call blockTimeGte on them (the compiler forbids time
-// checks on witness data — it would leak a time boundary). The custodian
-// therefore rolls the period over in its own private state before calling the
-// circuit, and reports the current-period spent value. The circuit enforces
-// that this payment fits within the reported spent/dailyLimit. This matches
-// the honest scope documented at the top of the file.
+// ─── Note shape ─────────────────────────────────────────────────────────────
+
+struct PolicyNote {
+    balance: Uint<64>;
+    spentInPeriod: Uint<64>;
+    dailyLimit: Uint<64>;
+    perPaymentLimit: Uint<64>;
+    periodEndsAt: Uint<64>;
+    nonce: Bytes<32>;
+}
+
+// ─── Private witnesses ──────────────────────────────────────────────────────
+// localSecret: deployer's secret (owner authority).
+// agentSecret: the paying agent's secret; supplies the identity commitment and
+//              is bound into every note, so only the agent can spend its notes.
+// agentPath:   private Merkle path proving the agent's identity leaf is in the
+//              agents tree.
+// note/notePath: the agent's current policy note and its private Merkle path.
+// nextNonce:   fresh randomness for the note being created. The client supplies
+//              it and remembers the resulting note; a repeated nonce would only
+//              harm the agent (the new note would duplicate a spent one).
 witness localSecret(): Bytes<32>;
 witness agentSecret(): Bytes<32>;
 witness agentPath(): MerkleTreePath<16, Bytes<32>>;
-witness policyBalance(): Uint<64>;
-witness policyDailyLimit(): Uint<64>;
-witness policySpentInPeriod(): Uint<64>;
-witness policyPerPaymentLimit(): Uint<64>;
+witness note(): PolicyNote;
+witness notePath(): MerkleTreePath<16, Bytes<32>>;
+witness nextNonce(): Bytes<32>;
 
-// Sealed at deployment: the owner key derived from the deployer's secret.
-// Only the deployer can ever manage providers or withdraw funds.
+// ─── Construction ───────────────────────────────────────────────────────────
+
 constructor() {
     owner = disclose(ownerKey());
 }
@@ -84,16 +103,67 @@ circuit requireOwner(): [] {
     assert(owner == disclose(ownerKey()), "Only the owner can call this circuit");
 }
 
-// Register an agent: append its identity commitment (leaf) to the tree.
-// Owner-gated in v2: the balance/policy that authorize payments now live in
-// private (witness) state, so letting anyone self-register would let an
-// external actor claim an arbitrary private balance and drain the pool.
-// The owner registers the agents it funds; the leaf is H(agentSecret), so the
-// chain stores no key that an observer can map back to a real agent, and a
-// payment later proves membership without revealing which leaf paid.
+// Commitment to a policy note. Every field is bound to the agent secret, so a
+// note cannot be moved between agents and cannot be forged from public data.
+circuit noteCommitment(sk: Bytes<32>, n: PolicyNote): Bytes<32> {
+    return persistentHash<Vector<8, Bytes<32>>>([
+        pad(32, "shade402:policy-note:v3"),
+        sk,
+        pad(32, n.balance),
+        pad(32, n.spentInPeriod),
+        pad(32, n.dailyLimit),
+        pad(32, n.perPaymentLimit),
+        pad(32, n.periodEndsAt),
+        n.nonce
+    ]);
+}
+
+// A note can be consumed exactly once.
+circuit nullifier(sk: Bytes<32>, nonce: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<3, Bytes<32>>>([
+        pad(32, "shade402:note-nullifier:v3"),
+        sk,
+        nonce
+    ]);
+}
+
+// Shared prologue: prove the caller holds a registered identity and an active,
+// unspent policy note. Returns the note so circuits can act on it.
+circuit requireActiveNote(): PolicyNote {
+    const sk = agentSecret();
+
+    // 1. Identity: membership without revealing which leaf.
+    const path = agentPath();
+    const leaf = agentLeaf(sk);
+    assert(path.leaf == leaf, "Merkle path leaf does not match derived agent commitment");
+    assert(agents.checkRoot(merkleTreePathRoot<16, Bytes<32>>(disclose(path))), "Agent is not registered");
+
+    // 2. Policy note: the caller's committed balance/limits are in the tree.
+    const n = note();
+    const np = notePath();
+    assert(np.leaf == noteCommitment(sk, n), "Note path does not match the committed policy");
+    assert(notes.checkRoot(merkleTreePathRoot<16, Bytes<32>>(disclose(np))), "Policy note is not active");
+
+    // 3. Single use: the note has not been consumed.
+    assert(!usedNullifiers.member(disclose(nullifier(sk, n.nonce))), "Policy note has already been spent");
+
+    return n;
+}
+
+// Consume the caller's note and append its successor.
+circuit replaceNote(sk: Bytes<32>, n: PolicyNote, next: PolicyNote): [] {
+    usedNullifiers.insert(disclose(nullifier(sk, n.nonce)));
+    notes.insert(disclose(noteCommitment(sk, next)));
+}
+
+// ─── Owner circuits ─────────────────────────────────────────────────────────
+
+// Register an agent: append its identity commitment and mint its first policy
+// note with a zero balance and the owner-set limits.
 export circuit registerAgent(
     dailyLimit: Uint<64>,
-    perPaymentLimit: Uint<64>
+    perPaymentLimit: Uint<64>,
+    periodEndsAt: Uint<64>
 ): [] {
     requireOwner();
     assert(dailyLimit > 0, "Daily limit must be positive");
@@ -101,12 +171,18 @@ export circuit registerAgent(
     assert(perPaymentLimit <= dailyLimit, "Payment limit exceeds daily limit");
 
     const sk = agentSecret();
-    const leaf = agentLeaf(sk);
-    agents.insert(disclose(leaf));
+    agents.insert(disclose(agentLeaf(sk)));
+    notes.insert(disclose(noteCommitment(sk, PolicyNote {
+        balance: 0,
+        spentInPeriod: 0,
+        dailyLimit: dailyLimit,
+        perPaymentLimit: perPaymentLimit,
+        periodEndsAt: periodEndsAt,
+        nonce: nextNonce()
+    })));
 }
 
-// Owner-only: allow a provider address to receive payments. Agents can only
-// ever pay allowlisted providers, which closes the self-pay drain.
+// Owner-only: allow a provider address to receive payments.
 export circuit allowProvider(provider: UserAddress): [] {
     requireOwner();
     assert(!allowedProviders.member(disclose(provider)), "Provider already allowed");
@@ -120,18 +196,7 @@ export circuit revokeProvider(provider: UserAddress): [] {
     allowedProviders.remove(disclose(provider));
 }
 
-// Deposit funds into the contract. The deposit is unshielded (public amount),
-// which the provider must be able to verify anyway. Per-agent crediting stays
-// in the agent's private state. totalDeposited is an aggregate, never
-// attributed to an agent on-chain.
-export circuit deposit(amount: Uint<64>): [] {
-    assert(amount > 0, "Deposit amount must be positive");
-    receiveUnshielded(nativeToken(), disclose(amount));
-    totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
-}
-
-// Owner-only: withdraw contract funds back to the owner's address. Escape
-// hatch so deposited funds are never locked in the contract.
+// Owner-only: withdraw contract funds back to the owner's address.
 export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
     requireOwner();
     assert(amount > 0, "Withdrawal amount must be positive");
@@ -143,51 +208,89 @@ export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
     );
 }
 
-// Private settlement: prove the caller is a registered agent (Merkle
-// membership, payer identity hidden), that the invoice is unpaid, the
-// recipient is allowlisted, and that the payment is within the agent's
-// private policy — then settle to the provider.
+// ─── Agent circuits ─────────────────────────────────────────────────────────
+
+// Credit the caller's committed balance and reissue the note. Deposits are
+// public in amount (providers must be able to verify funding) but the note
+// keeps which agent credits it private.
+export circuit deposit(amount: Uint<64>): [] {
+    const sk = agentSecret();
+    const n = requireActiveNote();
+    assert(amount > 0, "Deposit amount must be positive");
+
+    receiveUnshielded(nativeToken(), disclose(amount));
+    totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
+
+    replaceNote(sk, n, PolicyNote {
+        balance: (n.balance + amount) as Uint<64>,
+        spentInPeriod: n.spentInPeriod,
+        dailyLimit: n.dailyLimit,
+        perPaymentLimit: n.perPaymentLimit,
+        periodEndsAt: n.periodEndsAt,
+        nonce: nextNonce()
+    });
+}
+
+// Roll a finished period over: reset the committed spend and extend the period
+// end. The period end is a public parameter so the chain can time-check it; the
+// proof binds it to the committed note, so it cannot be rolled early or with a
+// fabricated period.
+export circuit rollPeriod(periodEndsAtPublic: Uint<64>): [] {
+    const sk = agentSecret();
+    const n = requireActiveNote();
+    assert(n.periodEndsAt == periodEndsAtPublic, "Period end does not match the committed note");
+    assert(blockTimeGte(disclose(periodEndsAtPublic)), "Period has not ended yet");
+
+    replaceNote(sk, n, PolicyNote {
+        balance: n.balance,
+        spentInPeriod: 0,
+        dailyLimit: n.dailyLimit,
+        perPaymentLimit: n.perPaymentLimit,
+        periodEndsAt: (n.periodEndsAt + 86400) as Uint<64>,
+        nonce: nextNonce()
+    });
+}
+
+// Private settlement: consume the agent's note, prove in-circuit that the
+// payment is funded and within the committed policy, and reissue the note with
+// the updated balance and spend. The payer of record remains the contract.
 export circuit payInvoice(
     recipient: UserAddress,
     invoiceHash: Bytes<32>,
     amount: Uint<64>
 ): [] {
-    // 1. Membership without identity: recompute the agent's leaf from the
-    //    private secret and verify it sits under a root the tree accepts.
-    //    The path (and thus the leaf + position) never goes on-chain.
     const sk = agentSecret();
-    const path = agentPath();
-    const leaf = agentLeaf(sk);
-    assert(path.leaf == leaf, "Merkle path leaf does not match derived agent commitment");
-    const computed_root = merkleTreePathRoot<16, Bytes<32>>(disclose(path));
-    assert(agents.checkRoot(computed_root), "Agent is not registered");
+    const n = requireActiveNote();
 
-    // 2. Provider must be owner-allowlisted (drain protection).
+    // Provider must be owner-allowlisted (drain protection).
     assert(allowedProviders.member(disclose(recipient)), "Recipient is not an allowed provider");
 
-    // 3. Replay protection: an invoice can be settled at most once.
+    // Replay protection: an invoice can be settled at most once.
     assert(!usedInvoices.member(disclose(invoiceHash)), "Invoice has already been paid");
 
-    // 4. Policy enforcement in-ZK over the agent's private state.
+    // Policy, now provably tied to a chain of committed notes.
     assert(amount > 0, "Payment amount must be positive");
-    const balance = policyBalance();
-    const dailyLimit = policyDailyLimit();
-    const spent = policySpentInPeriod();
-    const perPaymentLimit = policyPerPaymentLimit();
+    assert(n.balance >= amount, "Insufficient agent balance");
+    assert(n.perPaymentLimit >= amount, "Payment exceeds per-payment limit");
+    assert(n.spentInPeriod + amount <= n.dailyLimit, "Payment exceeds daily limit");
 
-    assert(balance >= amount, "Insufficient agent balance");
-    assert(perPaymentLimit >= amount, "Payment exceeds per-payment limit");
-    assert(spent + amount <= dailyLimit, "Payment exceeds daily limit");
-
-    // 5. Settle. The payer-of-record is the Shade402 contract, so the
-    //    provider sees "Shade402 paid" — never which agent.
+    // Settle. The provider sees "Shade402 paid" — never which agent.
     sendUnshielded(
         nativeToken(),
         disclose(amount) as Uint<128>,
         right<ContractAddress, UserAddress>(disclose(recipient))
     );
 
-    // 6. Record public outcomes: invoice used, aggregate total updated.
+    // Consume the note and append its successor.
+    replaceNote(sk, n, PolicyNote {
+        balance: (n.balance - amount) as Uint<64>,
+        spentInPeriod: (n.spentInPeriod + amount) as Uint<64>,
+        dailyLimit: n.dailyLimit,
+        perPaymentLimit: n.perPaymentLimit,
+        periodEndsAt: n.periodEndsAt,
+        nonce: nextNonce()
+    });
+
     usedInvoices.insert(disclose(invoiceHash));
     lastSettledInvoice = disclose(invoiceHash);
     totalSettledAmount = (totalSettledAmount + disclose(amount)) as Uint<64>;
