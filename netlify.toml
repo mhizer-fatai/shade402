@@ -1,0 +1,11 @@
+[build]
+  base = "web"
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback: the app uses real URL paths (/dashboard), so deep links and
+# refreshes must serve index.html instead of 404ing.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

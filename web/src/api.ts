@@ -55,13 +55,24 @@ export interface MockResourceResult {
 /** Token used by demo mode; the backend is started with this pinned. */
 export const DEMO_API_TOKEN = 'shade402-demo-token';
 
+// Base URL for the API. Empty in local dev — the Vite proxy forwards /api to
+// localhost:4000. When the static frontend is hosted elsewhere (e.g. Netlify),
+// set VITE_API_URL to the deployed backend origin (e.g. Render).
+const API_BASE =
+  ((import.meta as any).env?.VITE_API_URL as string | undefined)?.replace(/\/+$/, '') ?? '';
+
+function apiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}${path}`;
+}
+
 function currentToken(): string {
   return window.localStorage.getItem('shade402-api-token') ?? '';
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const attempt = (token: string) =>
-    fetch(path, {
+    fetch(apiUrl(path), {
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
