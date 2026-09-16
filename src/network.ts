@@ -154,7 +154,7 @@ export interface ResolveOptions {
   cwd?: string;
 }
 
-export type ResolveSource = 'flag' | 'state' | 'default';
+export type ResolveSource = 'flag' | 'env' | 'state' | 'default';
 
 export interface ResolveResult {
   network: NetworkId;
@@ -191,6 +191,11 @@ export function resolveNetwork(opts: ResolveOptions = {}): ResolveResult {
   if (flag) {
     network = flag;
     source = 'flag';
+  } else if (isNetworkId(env.MIDNIGHT_NETWORK)) {
+    // Hosted deployments (e.g. Render) ship no state file, so the active
+    // network comes from the environment.
+    network = env.MIDNIGHT_NETWORK;
+    source = 'env';
   } else {
     const state = loadState({ cwd });
     if (state) {
@@ -342,6 +347,16 @@ export function formatWalletBackupNotice(
 }
 
 export function getDeployment(network: NetworkId, opts: FsOptions = {}): DeploymentRecord | null {
+  // Hosted deployments read the contract address from the environment: the
+  // state file (which also holds the wallet) is never shipped.
+  const envAddress = process.env.MIDNIGHT_CONTRACT_ADDRESS;
+  if (envAddress) {
+    return {
+      address: envAddress,
+      deployer: process.env.MIDNIGHT_DEPLOYER_ADDRESS ?? 'env-configured',
+      deployedAt: process.env.MIDNIGHT_DEPLOYED_AT ?? 'unknown',
+    };
+  }
   const state = loadState(opts);
   return state?.deployments?.[network] ?? null;
 }

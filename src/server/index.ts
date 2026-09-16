@@ -247,6 +247,11 @@ function deploymentAddress(): string {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 const app = express();
+
+// Hosted platforms (Render) kill deploys whose HTTP port never binds, and the
+// wallet sync below can take minutes. Bind first, then connect, and answer 503
+// for API calls until the chain connection is ready.
+let ready = false;
 // CORS is restricted to the dashboard origins. Never open (`cors()` alone
 // would let any website on the internet drive this API and the wallet).
 app.use(
@@ -260,6 +265,18 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Until the wallet has synced and the contract is connected, report a clear
+// "starting" state instead of failing with undefined-provider errors.
+app.use('/api', (_req, res, next) => {
+  if (!ready) {
+    res
+      .status(503)
+      .json({ error: 'Backend is starting up (wallet sync). Retry in about a minute.' });
+    return;
+  }
+  next();
+});
 
 // Bearer-token authentication for every mutating endpoint.
 function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -539,15 +556,20 @@ app.post('/api/pay', requireAuth, async (req, res) => {
 });
 
 async function main() {
-  await connect();
+  // Bind immediately so the platform sees a live port; the chain connection
+  // continues in the background and API calls 503 until it completes.
   app.listen(PORT, () => {
-    console.log(`Shade402 backend listening on http://localhost:${PORT}`);
+    console.log(`Shade402 backend listening on http://localhost:${PORT} (syncing…)`);
     console.log(`  CORS origins: ${ALLOWED_ORIGINS.join(', ')}`);
     console.log(`  API token (send as "Authorization: Bearer <token>"): ${API_TOKEN}`);
     if (!process.env.SHADE_API_TOKEN) {
       console.log('  (token is random per run — set SHADE_API_TOKEN to pin it)');
     }
   });
+
+  await connect();
+  ready = true;
+  console.log('Shade402 backend ready.');
 }
 
 main().catch((e) => {
