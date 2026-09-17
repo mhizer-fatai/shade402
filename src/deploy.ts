@@ -252,13 +252,21 @@ async function main() {
   }
 
   if (dustState.dust.balance(new Date()) === 0n) {
-    console.log('  Waiting for DUST tokens...');
-    await Rx.firstValueFrom(
-      walletCtx.wallet.state().pipe(
-        Rx.throttleTime(5000),
-        Rx.filter((s: any) => s.dust.balance(new Date()) > 0n),
-      ),
-    );
+    console.log('  Waiting for DUST tokens (generated over time from registered NIGHT).');
+    console.log('  This is a protocol accrual, not a download — it can take a few minutes.');
+    const dustStart = Date.now();
+    // Poll with visible progress: a silent wait looks like a hang.
+    while (true) {
+      await new Promise((r) => setTimeout(r, 10_000));
+      const s = await Rx.firstValueFrom(walletCtx.wallet.state());
+      const dust = s.dust.balance(new Date());
+      const elapsed = Math.round((Date.now() - dustStart) / 1000);
+      if (dust > 0n) {
+        process.stdout.write(`\r  DUST available: ${dust.toLocaleString()} (waited ${elapsed}s)          \n`);
+        break;
+      }
+      process.stdout.write(`\r  Still generating DUST... (${elapsed}s elapsed)   `);
+    }
   }
   console.log('  DUST tokens ready!\n');
 
