@@ -105,15 +105,21 @@ circuit requireOwner(): [] {
 
 // Commitment to a policy note. Every field is bound to the agent secret, so a
 // note cannot be moved between agents and cannot be forged from public data.
+// (`pad` only accepts string literals in this language version, so the numeric
+// fields are hashed as a Uint vector first and that digest is bound to the
+// domain, the agent secret and the nonce.)
 circuit noteCommitment(sk: Bytes<32>, n: PolicyNote): Bytes<32> {
-    return persistentHash<Vector<8, Bytes<32>>>([
+    const fields = persistentHash<Vector<5, Uint<64>>>([
+        n.balance,
+        n.spentInPeriod,
+        n.dailyLimit,
+        n.perPaymentLimit,
+        n.periodEndsAt
+    ]);
+    return persistentHash<Vector<4, Bytes<32>>>([
         pad(32, "shade402:policy-note:v3"),
         sk,
-        pad(32, n.balance),
-        pad(32, n.spentInPeriod),
-        pad(32, n.dailyLimit),
-        pad(32, n.perPaymentLimit),
-        pad(32, n.periodEndsAt),
+        fields,
         n.nonce
     ]);
 }
