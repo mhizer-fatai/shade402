@@ -9,24 +9,37 @@ export type Witnesses<PS> = {
                                                                                   goes_left: boolean
                                                                                 }[]
                                                                         }];
-  policyBalance(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
-  policyDailyLimit(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
-  policySpentInPeriod(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
-  policyPerPaymentLimit(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, bigint];
+  note(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, { balance: bigint,
+                                                                     spentInPeriod: bigint,
+                                                                     dailyLimit: bigint,
+                                                                     perPaymentLimit: bigint,
+                                                                     periodEndsAt: bigint,
+                                                                     nonce: Uint8Array
+                                                                   }];
+  notePath(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, { leaf: Uint8Array,
+                                                                         path: { sibling: { field: bigint
+                                                                                          },
+                                                                                 goes_left: boolean
+                                                                               }[]
+                                                                       }];
+  nextNonce(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
 }
 
 export type ImpureCircuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
-                perPaymentLimit_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                perPaymentLimit_0: bigint,
+                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
-  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  rollPeriod(context: __compactRuntime.CircuitContext<PS>,
+             periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
@@ -36,15 +49,18 @@ export type ImpureCircuits<PS> = {
 export type ProvableCircuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
-                perPaymentLimit_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                perPaymentLimit_0: bigint,
+                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
-  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  rollPeriod(context: __compactRuntime.CircuitContext<PS>,
+             periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
@@ -57,15 +73,18 @@ export type PureCircuits = {
 export type Circuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
-                perPaymentLimit_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                perPaymentLimit_0: bigint,
+                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
-  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  rollPeriod(context: __compactRuntime.CircuitContext<PS>,
+             periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
@@ -81,6 +100,21 @@ export type Ledger = {
     pathForLeaf(index_0: bigint, leaf_0: Uint8Array): __compactRuntime.MerkleTreePath<Uint8Array>;
     findPathForLeaf(leaf_0: Uint8Array): __compactRuntime.MerkleTreePath<Uint8Array> | undefined;
     history(): Iterator<__compactRuntime.MerkleTreeDigest>
+  };
+  notes: {
+    isFull(): boolean;
+    checkRoot(rt_0: { field: bigint }): boolean;
+    root(): __compactRuntime.MerkleTreeDigest;
+    firstFree(): bigint;
+    pathForLeaf(index_0: bigint, leaf_0: Uint8Array): __compactRuntime.MerkleTreePath<Uint8Array>;
+    findPathForLeaf(leaf_0: Uint8Array): __compactRuntime.MerkleTreePath<Uint8Array> | undefined;
+    history(): Iterator<__compactRuntime.MerkleTreeDigest>
+  };
+  usedNullifiers: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(elem_0: Uint8Array): boolean;
+    [Symbol.iterator](): Iterator<Uint8Array>
   };
   usedInvoices: {
     isEmpty(): boolean;

@@ -21,6 +21,13 @@
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
+        },
+        {
+          "name": "periodEndsAt",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
         }
       ],
       "result-type": {
@@ -86,25 +93,6 @@
       }
     },
     {
-      "name": "deposit",
-      "pure": false,
-      "proof": true,
-      "arguments": [
-        {
-          "name": "amount",
-          "type": {
-            "type-name": "Uint",
-            "maxval": 18446744073709551615
-          }
-        }
-      ],
-      "result-type": {
-        "type-name": "Tuple",
-        "types": [
-        ]
-      }
-    },
-    {
       "name": "withdraw",
       "pure": false,
       "proof": true,
@@ -130,6 +118,44 @@
                 }
               }
             ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "deposit",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "amount",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "rollPeriod",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "periodEndsAtPublic",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
           }
         }
       ],
@@ -254,39 +280,117 @@
       }
     },
     {
-      "name": "policyBalance",
+      "name": "note",
       "arguments": [
       ],
       "result type": {
-        "type-name": "Uint",
-        "maxval": 18446744073709551615
+        "type-name": "Struct",
+        "name": "PolicyNote",
+        "elements": [
+          {
+            "name": "balance",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "spentInPeriod",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "dailyLimit",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "perPaymentLimit",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "periodEndsAt",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "nonce",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        ]
       }
     },
     {
-      "name": "policyDailyLimit",
+      "name": "notePath",
       "arguments": [
       ],
       "result type": {
-        "type-name": "Uint",
-        "maxval": 18446744073709551615
+        "type-name": "Struct",
+        "name": "MerkleTreePath",
+        "elements": [
+          {
+            "name": "leaf",
+            "type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          },
+          {
+            "name": "path",
+            "type": {
+              "type-name": "Vector",
+              "length": 16,
+              "type": {
+                "type-name": "Struct",
+                "name": "MerkleTreePathEntry",
+                "elements": [
+                  {
+                    "name": "sibling",
+                    "type": {
+                      "type-name": "Struct",
+                      "name": "MerkleTreeDigest",
+                      "elements": [
+                        {
+                          "name": "field",
+                          "type": {
+                            "type-name": "Field"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "goes_left",
+                    "type": {
+                      "type-name": "Boolean"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
       }
     },
     {
-      "name": "policySpentInPeriod",
+      "name": "nextNonce",
       "arguments": [
       ],
       "result type": {
-        "type-name": "Uint",
-        "maxval": 18446744073709551615
-      }
-    },
-    {
-      "name": "policyPerPaymentLimit",
-      "arguments": [
-      ],
-      "result type": {
-        "type-name": "Uint",
-        "maxval": 18446744073709551615
+        "type-name": "Bytes",
+        "length": 32
       }
     }
   ],
@@ -305,8 +409,29 @@
       }
     },
     {
-      "name": "usedInvoices",
+      "name": "notes",
       "index": 1,
+      "exported": true,
+      "storage": "HistoricMerkleTree",
+      "depth": 16,
+      "type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "usedNullifiers",
+      "index": 2,
+      "exported": true,
+      "storage": "Set",
+      "type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "usedInvoices",
+      "index": 3,
       "exported": true,
       "storage": "Set",
       "type": {
@@ -316,7 +441,7 @@
     },
     {
       "name": "allowedProviders",
-      "index": 2,
+      "index": 4,
       "exported": true,
       "storage": "Set",
       "type": {
@@ -335,7 +460,7 @@
     },
     {
       "name": "owner",
-      "index": 3,
+      "index": 5,
       "exported": true,
       "storage": "Cell",
       "type": {
@@ -345,7 +470,7 @@
     },
     {
       "name": "lastSettledInvoice",
-      "index": 4,
+      "index": 6,
       "exported": true,
       "storage": "Cell",
       "type": {
@@ -355,7 +480,7 @@
     },
     {
       "name": "totalSettledAmount",
-      "index": 5,
+      "index": 7,
       "exported": true,
       "storage": "Cell",
       "type": {
@@ -365,7 +490,7 @@
     },
     {
       "name": "totalDeposited",
-      "index": 6,
+      "index": 8,
       "exported": true,
       "storage": "Cell",
       "type": {
