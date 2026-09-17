@@ -26,7 +26,7 @@ import { Shade402Client, type ShadePrivateState, makePrivateState } from './shad
 globalThis.WebSocket = WebSocket;
 
 // Identifier under which this contract's private state is stored.
-const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
+const PRIVATE_STATE_ID = 'shade402PrivateStateV3';
 
 // ─── Network configuration ─────────────────────────────────────────────────────
 //

@@ -69,3 +69,89 @@ test('agent leaf matches the contract leaf domain', () => {
     client.getAgentLeaf(),
   );
 });
+
+// ─── v3: committed policy notes ─────────────────────────────────────────────
+
+const NOTE = {
+  balance: 100n,
+  spentInPeriod: 0n,
+  dailyLimit: 1000n,
+  perPaymentLimit: 200n,
+  periodEndsAt: 1_800_000_000n,
+};
+
+const f = (n: number) => new Uint8Array(32).fill(n);
+
+test('note commitment is deterministic for the same fields and nonce', () => {
+  const secret = f(5);
+  const nonce = f(9);
+  const a = Shade402Client.noteCommitment(secret, { ...NOTE, nonce });
+  const b = Shade402Client.noteCommitment(secret, { ...NOTE, nonce });
+  assert.deepEqual(a, b);
+  assert.equal(a.length, 32);
+});
+
+test('note commitment changes when any committed field changes', () => {
+  const secret = f(5);
+  const nonce = f(9);
+  const base = Shade402Client.noteCommitment(secret, { ...NOTE, nonce });
+  const variants = [
+    { ...NOTE, balance: 101n, nonce },
+    { ...NOTE, spentInPeriod: 1n, nonce },
+    { ...NOTE, dailyLimit: 1001n, nonce },
+    { ...NOTE, perPaymentLimit: 201n, nonce },
+    { ...NOTE, periodEndsAt: 1_800_086_400n, nonce },
+  ];
+  for (const v of variants) {
+    assert.notDeepEqual(base, Shade402Client.noteCommitment(secret, v));
+  }
+});
+
+test('note commitment binds the nonce (freshness) and the agent secret (ownership)', () => {
+  const secret = f(5);
+  const base = Shade402Client.noteCommitment(secret, { ...NOTE, nonce: f(1) });
+  assert.notDeepEqual(base, Shade402Client.noteCommitment(secret, { ...NOTE, nonce: f(2) }));
+  assert.notDeepEqual(base, Shade402Client.noteCommitment(f(6), { ...NOTE, nonce: f(1) }));
+});
+
+test('nullifier is deterministic per note and distinct across notes', () => {
+  const secret = f(3);
+  assert.deepEqual(Shade402Client.nullifier(secret, f(1)), Shade402Client.nullifier(secret, f(1)));
+  assert.notDeepEqual(Shade402Client.nullifier(secret, f(1)), Shade402Client.nullifier(secret, f(2)));
+});
+
+test('a successor note is only applied on commit, and discarded on abort', () => {
+  const client = new Shade402Client(f(4));
+  client.setPolicy({ ...NOTE, nonce: f(7) });
+  const before = client.getNoteCommitment();
+
+  const successor = client.prepareNextNote({ balance: 85n, spentInPeriod: 15n });
+  assert.equal(successor.balance, 85n);
+  // Not applied yet: the client still points at the on-chain commitment.
+  assert.deepEqual(client.getNoteCommitment(), before);
+
+  client.abortNextNote();
+  assert.deepEqual(client.getNoteCommitment(), before);
+
+  client.prepareNextNote({ balance: 85n, spentInPeriod: 15n });
+  client.commitNextNote();
+  assert.equal(client.getPolicy().balance, 85n);
+  assert.notDeepEqual(client.getNoteCommitment(), before);
+});
+
+test('the nextNonce witness fails unless a successor note is prepared', () => {
+  const client = new Shade402Client(f(8));
+  const w: any = client.getWitnesses();
+  assert.throws(() => w.nextNonce({}), /no successor note prepared/i);
+  client.prepareNextNote({});
+  const [, nonce] = w.nextNonce({});
+  assert.equal(nonce.length, 32);
+});
+
+test('witness set exposes the six v3 witnesses', () => {
+  const client = new Shade402Client(f(8));
+  const w: any = client.getWitnesses();
+  for (const name of ['localSecret', 'agentSecret', 'agentPath', 'note', 'notePath', 'nextNonce']) {
+    assert.equal(typeof w[name], 'function', `missing witness: ${name}`);
+  }
+});

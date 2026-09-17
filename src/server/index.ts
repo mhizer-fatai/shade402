@@ -38,10 +38,10 @@ const zkConfigPath = path.resolve(__dirname, '..', '..', 'contracts', 'managed',
 const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
 
 const PORT = Number(process.env.PORT ?? 4000);
-// v2 uses a fresh private-state id: the persisted state shape changed (it now
-// carries the agent policy), and the v2 contract is a new deployment, so old
-// cached state must not leak in.
-const PRIVATE_STATE_ID = 'shade402PrivateStateV2';
+// v3 uses a fresh private-state id: the persisted state now carries the
+// committed policy note (including its nonce), and the contract is a new
+// deployment, so old cached state must not leak in.
+const PRIVATE_STATE_ID = 'shade402PrivateStateV3';
 
 const { network, config: networkConfig } = resolveNetwork();
 const WALLET = getOrCreateWallet(network);
@@ -101,6 +101,9 @@ function loadPolicy(): void {
       spentInPeriod: BigInt(raw.spentInPeriod ?? 0),
       periodEndsAt: BigInt(raw.periodEndsAt ?? 0),
       perPaymentLimit: BigInt(raw.perPaymentLimit ?? 0),
+      ...(typeof raw.nonce === 'string' && raw.nonce.length === 64
+        ? { nonce: new Uint8Array(Buffer.from(raw.nonce, 'hex')) }
+        : {}),
     });
     agentName = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : null;
     console.log(`[policy] loaded custodian policy from ${POLICY_FILE}`);
@@ -121,6 +124,7 @@ function savePolicy(): void {
           spentInPeriod: p.spentInPeriod.toString(),
           periodEndsAt: p.periodEndsAt.toString(),
           perPaymentLimit: p.perPaymentLimit.toString(),
+          nonce: Buffer.from(p.nonce).toString('hex'),
           name: agentName,
         },
         null,
@@ -455,7 +459,18 @@ app.post('/api/agent/register', requireAuth, async (req, res) => {
     // witnesses report on every payment.
     const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + hours * 3600);
     client.setPolicy({ dailyLimit: dl, perPaymentLimit: pl, periodEndsAt });
-    const tx = await deployed.callTx.registerAgent(dl, pl);
+    // v3: registration mints the agent's first committed policy note (zero
+    // balance). The circuit takes only the note's nonce from the `nextNonce`
+    // witness, so the successor is prepared here and committed only on success.
+    client.prepareNextNote({ balance: 0n, spentInPeriod: 0n });
+    let tx: any;
+    try {
+      tx = await deployed.callTx.registerAgent(dl, pl, periodEndsAt);
+      client.commitNextNote();
+    } catch (e) {
+      client.abortNextNote();
+      throw e;
+    }
     savePolicy();
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
   } catch (e: any) {
@@ -478,9 +493,17 @@ app.post('/api/agent/deposit', requireAuth, async (req, res) => {
     // On-chain: unshielded deposit into the contract (aggregate only). The
     // per-agent balance is private bookkeeping the custodian maintains and
     // reports via policyBalance on the next payment proof.
-    const tx = await deployed.callTx.deposit(amount);
+    // v3: the deposit consumes the current note and appends its successor.
     const policy = client.getPolicy();
-    client.setPolicy({ balance: policy.balance + amount });
+    client.prepareNextNote({ balance: policy.balance + amount });
+    let tx: any;
+    try {
+      tx = await deployed.callTx.deposit(amount);
+      client.commitNextNote();
+    } catch (e) {
+      client.abortNextNote();
+      throw e;
+    }
     savePolicy();
     res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight, amount: amount.toString() });
   } catch (e: any) {
@@ -550,19 +573,25 @@ app.post('/api/pay', requireAuth, async (req, res) => {
       expiresAt: Date.now() + 300_000,
     };
     const payload = client.buildPaymentPayload(challenge);
-    const tx = await deployed.callTx.payInvoice(
-      { bytes: resource.address },
-      payload.invoiceHash,
-      payload.amount,
-    );
-    // Debit the agent's private bookkeeping now that settlement succeeded.
-    // The policy witnesses will report the reduced balance/spent on the next
-    // payment proof.
+    // v3: prepare the successor note (the circuit enforces the same arithmetic
+    // in zero-knowledge: newBalance = balance - amount, newSpent = spent + amount).
     const policy = client.getPolicy();
-    client.setPolicy({
+    client.prepareNextNote({
       balance: policy.balance - amount,
       spentInPeriod: policy.spentInPeriod + amount,
     });
+    let tx: any;
+    try {
+      tx = await deployed.callTx.payInvoice(
+        { bytes: resource.address },
+        payload.invoiceHash,
+        payload.amount,
+      );
+      client.commitNextNote();
+    } catch (e) {
+      client.abortNextNote();
+      throw e;
+    }
     savePolicy();
     res.json({
       ok: true,
@@ -589,6 +618,41 @@ app.post('/api/pay', requireAuth, async (req, res) => {
     res
       .status(500)
       .json({ error: known ?? 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
+  }
+});
+
+// Roll a finished policy period over on-chain: the contract resets the
+// committed spend and extends the period end, binding the public period end to
+// the committed note.
+app.post('/api/agent/roll-period', requireAuth, async (_req, res) => {
+  try {
+    const policy = client.getPolicy();
+    if (policy.periodEndsAt === 0n) {
+      return res.status(400).json({ error: 'No policy period set — register the agent first' });
+    }
+    client.prepareNextNote({
+      spentInPeriod: 0n,
+      periodEndsAt: policy.periodEndsAt + 86400n,
+    });
+    let tx: any;
+    try {
+      tx = await deployed.callTx.rollPeriod(policy.periodEndsAt);
+      client.commitNextNote();
+    } catch (e) {
+      client.abortNextNote();
+      throw e;
+    }
+    savePolicy();
+    res.json({ ok: true, txId: tx.public.txId, blockHeight: tx.public.blockHeight });
+  } catch (e: any) {
+    console.error('[rollPeriod] failed:', e?.stack ?? e?.message ?? e);
+    const raw = `${e?.message ?? ''} ${e?.cause?.message ?? ''}`;
+    const known = [
+      'Period end does not match the committed note',
+      'Period has not ended yet',
+      'Policy note has already been spent',
+    ].find((m) => raw.includes(m));
+    res.status(500).json({ error: known ?? 'Period rollover failed' });
   }
 });
 

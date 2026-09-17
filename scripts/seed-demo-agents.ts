@@ -98,7 +98,14 @@ async function main() {
     });
 
     try {
-      const tx = await deployed.callTx.registerAgent(500n, 100n);
+      // v3: registration mints the agent's first committed policy note, and the
+      // circuit takes that note's nonce from the `nextNonce` witness — so the
+      // successor must be prepared before the call.
+      const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + 86400);
+      client.setPolicy({ dailyLimit: 500n, perPaymentLimit: 100n, periodEndsAt });
+      client.prepareNextNote({ balance: 0n, spentInPeriod: 0n });
+      const tx = await deployed.callTx.registerAgent(500n, 100n, periodEndsAt);
+      client.commitNextNote();
       console.log(`registered ${salt}: leaf=${Buffer.from(client.getAgentLeaf()).toString('hex').slice(0, 16)}… tx=${tx.public.txId}`);
     } catch (e: any) {
       const msg = e?.message ?? String(e);

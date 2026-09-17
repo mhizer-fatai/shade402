@@ -198,12 +198,16 @@ async function main() {
           const periodHours = Number(await rl.question('  Period length (hours): ')) || 24;
           const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + periodHours * 3600);
           privateStateClient.setPolicy({ dailyLimit, perPaymentLimit, periodEndsAt });
+          // v3: registration mints the agent's first committed policy note.
+          privateStateClient.prepareNextNote({ balance: 0n, spentInPeriod: 0n });
           console.log('\n  Submitting registration (this may take 30-60 seconds)...');
           try {
-            const tx = await deployed.callTx.registerAgent(dailyLimit, perPaymentLimit);
+            const tx = await deployed.callTx.registerAgent(dailyLimit, perPaymentLimit, periodEndsAt);
+            privateStateClient.commitNextNote();
             console.log(`\n  ✅ Agent registered`);
             console.log(`  Transaction ID: ${tx.public.txId}\n`);
           } catch (error) {
+            privateStateClient.abortNextNote();
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
           break;
@@ -213,13 +217,15 @@ async function main() {
           const amount = BigInt(await rl.question('  Deposit amount: '));
           console.log('\n  Submitting transaction (this may take 30-60 seconds)...');
           try {
-            const tx = await deployed.callTx.deposit(amount);
             const policy = privateStateClient.getPolicy();
-            privateStateClient.setPolicy({ balance: policy.balance + amount });
+            privateStateClient.prepareNextNote({ balance: policy.balance + amount });
+            const tx = await deployed.callTx.deposit(amount);
+            privateStateClient.commitNextNote();
             console.log(`\n  ✅ Deposited ${amount} units`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Block height: ${tx.public.blockHeight}\n`);
           } catch (error) {
+            privateStateClient.abortNextNote();
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
           break;
@@ -237,6 +243,11 @@ async function main() {
             expiresAt: Date.now() + expiresInSec * 1000,
           };
           const payload = privateStateClient.buildPaymentPayload(challenge);
+          const policy = privateStateClient.getPolicy();
+          privateStateClient.prepareNextNote({
+            balance: policy.balance - amount,
+            spentInPeriod: policy.spentInPeriod + amount,
+          });
           console.log('\n  Submitting private payment (this may take 30-60 seconds)...');
           try {
             const tx = await deployed.callTx.payInvoice(
@@ -244,15 +255,12 @@ async function main() {
               payload.invoiceHash,
               payload.amount,
             );
-            const policy = privateStateClient.getPolicy();
-            privateStateClient.setPolicy({
-              balance: policy.balance - amount,
-              spentInPeriod: policy.spentInPeriod + amount,
-            });
+            privateStateClient.commitNextNote();
             console.log(`\n  ✅ Invoice paid: ${invoiceId}`);
             console.log(`  Transaction ID: ${tx.public.txId}`);
             console.log(`  Invoice hash: ${Buffer.from(payload.invoiceHash).toString('hex')}\n`);
           } catch (error) {
+            privateStateClient.abortNextNote();
             console.error('\n  ❌ Failed:', error instanceof Error ? error.message : error);
           }
           break;
