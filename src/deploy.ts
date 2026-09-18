@@ -169,7 +169,24 @@ async function main() {
     process.stdout.write(`\r  ⏳ Still syncing... (${elapsed}s elapsed)   `);
   }, 5000);
   await waitForCoreSync(walletCtx);
-  const state = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((s: any) => s.isSynced || true)));
+  // The DUST channel can take far longer than core sync on a public chain (and
+  // has died mid-sync here before). Bound the full-sync wait: whatever happens,
+  // the DUST-balance poll below keeps reading live state and passes the moment
+  // DUST becomes visible, so a slow or stalled sync can never hard-hang us.
+  process.stdout.write('\r  Finishing full sync (bounded, then the DUST check takes over)...\n');
+  try {
+    await Promise.race([
+      walletCtx.wallet.waitForSyncedState(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('full-sync grace period elapsed')), 10 * 60_000),
+      ),
+    ]);
+  } catch {
+    process.stdout.write(
+      '  Full sync still running in the background; continuing — the DUST check polls live state.\n',
+    );
+  }
+  const state = await Rx.firstValueFrom(walletCtx.wallet.state());
   clearInterval(syncInterval);
   process.stdout.write('\r  ✓ Synced with network.                                      \n');
 
@@ -255,7 +272,8 @@ async function main() {
     console.log('  Waiting for DUST tokens (generated over time from registered NIGHT).');
     console.log('  This is a protocol accrual, not a download — it can take a few minutes.');
     const dustStart = Date.now();
-    // Poll with visible progress: a silent wait looks like a hang.
+    // Poll with visible progress: a silent wait looks like a hang. Checkpoint
+    // sync state every couple of minutes so a killed run keeps its progress.
     while (true) {
       await new Promise((r) => setTimeout(r, 10_000));
       const s = await Rx.firstValueFrom(walletCtx.wallet.state());
@@ -264,6 +282,9 @@ async function main() {
       if (dust > 0n) {
         process.stdout.write(`\r  DUST available: ${dust.toLocaleString()} (waited ${elapsed}s)          \n`);
         break;
+      }
+      if (elapsed % 120 < 10) {
+        await persistWalletState(network, walletCtx);
       }
       process.stdout.write(`\r  Still generating DUST... (${elapsed}s elapsed)   `);
     }
