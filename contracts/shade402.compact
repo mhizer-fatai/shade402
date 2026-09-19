@@ -241,9 +241,9 @@ export circuit withdrawShielded(receiver: ZswapCoinPublicKey, amount: Uint<64>):
     requireOwner();
     assert(hasShieldedPot, "Shielded pool is empty");
     assert(amount > 0, "Withdrawal amount must be positive");
-    const result = sendShielded(shieldedPot, left(disclose(receiver)), disclose(amount));
+    const result = sendShielded(shieldedPot, left<ZswapCoinPublicKey, ContractAddress>(disclose(receiver)), disclose(amount));
     if (result.change.is_some) {
-        shieldedPot.writeCoin(result.change.value, right(kernel.self()));
+        shieldedPot.writeCoin(result.change.value, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
     } else {
         hasShieldedPot = false;
     }
@@ -301,9 +301,9 @@ export circuit depositShielded(coin: ShieldedCoinInfo): [] {
 
     if (hasShieldedPot) {
         const merged = mergeCoinImmediate(shieldedPot, incoming);
-        shieldedPot.writeCoin(merged, right(kernel.self()));
+        shieldedPot.writeCoin(merged, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
     } else {
-        shieldedPot.writeCoin(incoming, right(kernel.self()));
+        shieldedPot.writeCoin(incoming, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
         hasShieldedPot = true;
     }
 
@@ -430,9 +430,9 @@ export circuit payShielded(
     assert(n.spentInPeriod + amount <= n.dailyLimit, "Payment exceeds daily limit");
 
     const pot = shieldedPot;
-    const result = sendShielded(pot, left(disclose(recipient)), disclose(amount));
+    const result = sendShielded(pot, left<ZswapCoinPublicKey, ContractAddress>(disclose(recipient)), disclose(amount));
     if (result.change.is_some) {
-        shieldedPot.writeCoin(result.change.value, right(kernel.self()));
+        shieldedPot.writeCoin(result.change.value, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
     } else {
         hasShieldedPot = false;
     }
