@@ -37,16 +37,30 @@ export type ImpureCircuits<PS> = {
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  allowShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                   key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  revokeShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                    key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  withdrawShielded(context: __compactRuntime.CircuitContext<PS>,
+                   receiver_0: { bytes: Uint8Array },
+                   amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  depositShielded(context: __compactRuntime.CircuitContext<PS>,
+                  coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint
+                          }): __compactRuntime.CircuitResults<PS, []>;
   rollPeriod(context: __compactRuntime.CircuitContext<PS>,
              periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  payShielded(context: __compactRuntime.CircuitContext<PS>,
+              recipient_0: { bytes: Uint8Array },
+              invoiceHash_0: Uint8Array,
+              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type ProvableCircuits<PS> = {
@@ -59,16 +73,30 @@ export type ProvableCircuits<PS> = {
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  allowShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                   key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  revokeShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                    key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  withdrawShielded(context: __compactRuntime.CircuitContext<PS>,
+                   receiver_0: { bytes: Uint8Array },
+                   amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  depositShielded(context: __compactRuntime.CircuitContext<PS>,
+                  coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint
+                          }): __compactRuntime.CircuitResults<PS, []>;
   rollPeriod(context: __compactRuntime.CircuitContext<PS>,
              periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  payShielded(context: __compactRuntime.CircuitContext<PS>,
+              recipient_0: { bytes: Uint8Array },
+              invoiceHash_0: Uint8Array,
+              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type PureCircuits = {
@@ -84,16 +112,30 @@ export type Circuits<PS> = {
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
                  provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  allowShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                   key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  revokeShieldedKey(context: __compactRuntime.CircuitContext<PS>,
+                    key_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
+  withdrawShielded(context: __compactRuntime.CircuitContext<PS>,
+                   receiver_0: { bytes: Uint8Array },
+                   amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>,
            amount_0: bigint,
            destination_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   deposit(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  depositShielded(context: __compactRuntime.CircuitContext<PS>,
+                  coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint
+                          }): __compactRuntime.CircuitResults<PS, []>;
   rollPeriod(context: __compactRuntime.CircuitContext<PS>,
              periodEndsAtPublic_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   payInvoice(context: __compactRuntime.CircuitContext<PS>,
              recipient_0: { bytes: Uint8Array },
              invoiceHash_0: Uint8Array,
              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  payShielded(context: __compactRuntime.CircuitContext<PS>,
+              recipient_0: { bytes: Uint8Array },
+              invoiceHash_0: Uint8Array,
+              amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type Ledger = {
@@ -137,6 +179,18 @@ export type Ledger = {
   readonly lastSettledInvoice: Uint8Array;
   readonly totalSettledAmount: bigint;
   readonly totalDeposited: bigint;
+  readonly shieldedPot: { nonce: Uint8Array,
+                          color: Uint8Array,
+                          value: bigint,
+                          mt_index: bigint
+                        };
+  readonly hasShieldedPot: boolean;
+  allowedShieldedKeys: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(elem_0: Uint8Array): boolean;
+    [Symbol.iterator](): Iterator<Uint8Array>
+  };
 }
 
 export type ContractReferenceLocations = any;
