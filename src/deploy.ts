@@ -272,6 +272,7 @@ async function main() {
     console.log('  Waiting for DUST tokens (generated over time from registered NIGHT).');
     console.log('  This is a protocol accrual, not a download — it can take a few minutes.');
     const dustStart = Date.now();
+    let lastRegCheck = 0;
     // Poll with visible progress: a silent wait looks like a hang. Checkpoint
     // sync state every couple of minutes so a killed run keeps its progress.
     while (true) {
@@ -282,6 +283,36 @@ async function main() {
       if (dust > 0n) {
         process.stdout.write(`\r  DUST available: ${dust.toLocaleString()} (waited ${elapsed}s)          \n`);
         break;
+      }
+      // Faucet funds can land mid-wait as fresh, unregistered UTXOs. Register
+      // them so they start generating instead of sitting idle. A brand-new UTXO
+      // may lack the backdated allowance to self-fund its own registration —
+      // in that case we log it and retry on the next pass once it has aged.
+      if (elapsed - lastRegCheck >= 60) {
+        lastRegCheck = elapsed;
+        const fresh = (s.unshielded.availableCoins ?? []).filter(
+          (c: any) => !c.meta?.registeredForDustGeneration,
+        );
+        if (fresh.length > 0) {
+          try {
+            console.log(
+              `\n  Found ${fresh.length} new unregistered NIGHT UTXO(s) — registering for DUST generation...`,
+            );
+            const regRecipe = await walletCtx.wallet.registerNightUtxosForDustGeneration(
+              fresh,
+              walletCtx.unshieldedKeystore.getPublicKey(),
+              (payload) => walletCtx.unshieldedKeystore.signData(payload),
+            );
+            const regFinalized = await walletCtx.wallet.finalizeRecipe(regRecipe);
+            await walletCtx.wallet.submitTransaction(regFinalized);
+            console.log('  Registered. New UTXOs will start generating shortly.');
+          } catch (regErr: any) {
+            console.log(
+              `  (registration deferred, will retry: ${(regErr?.message ?? String(regErr)).slice(0, 100)})`,
+            );
+          }
+        }
+        await persistWalletState(network, walletCtx);
       }
       if (elapsed % 120 < 10) {
         await persistWalletState(network, walletCtx);
