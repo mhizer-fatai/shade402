@@ -49,6 +49,16 @@ export ledger lastSettledInvoice: Bytes<32>;
 export ledger totalSettledAmount: Uint<64>;
 export ledger totalDeposited: Uint<64>;
 
+// ─── Shielded pool (shielded lane) ──────────────────────────────────────────
+// The contract's shielded coin holdings plus the owner-approved shielded
+// recipient keys. Senders stay hidden by the shielded layer; amounts and the
+// (single-use, unlinkable) recipient keys are disclosed circuit parameters.
+// The notes tree carries the policy, so authorization is identical to the
+// unshielded lane — only the money leg changes.
+export ledger shieldedPot: QualifiedShieldedCoinInfo;
+export ledger hasShieldedPot: Boolean;
+export ledger allowedShieldedKeys: Set<Bytes<32>>;
+
 // ─── Note shape ─────────────────────────────────────────────────────────────
 
 struct PolicyNote {
@@ -210,6 +220,35 @@ export circuit revokeProvider(provider: UserAddress): [] {
     allowedProviders.remove(disclose(provider));
 }
 
+// Owner-only: approve a shielded recipient key for the shielded lane.
+export circuit allowShieldedKey(key: ZswapCoinPublicKey): [] {
+    requireOwner();
+    const kb = disclose(key.bytes);
+    assert(!allowedShieldedKeys.member(kb), "Shielded key already allowed");
+    allowedShieldedKeys.insert(kb);
+}
+
+// Owner-only: remove a shielded recipient key.
+export circuit revokeShieldedKey(key: ZswapCoinPublicKey): [] {
+    requireOwner();
+    const kb = disclose(key.bytes);
+    assert(allowedShieldedKeys.member(kb), "Shielded key not in allowlist");
+    allowedShieldedKeys.remove(kb);
+}
+
+// Owner-only: withdraw shielded funds from the pool to the owner's key.
+export circuit withdrawShielded(receiver: ZswapCoinPublicKey, amount: Uint<64>): [] {
+    requireOwner();
+    assert(hasShieldedPot, "Shielded pool is empty");
+    assert(amount > 0, "Withdrawal amount must be positive");
+    const result = sendShielded(shieldedPot, left(disclose(receiver)), disclose(amount));
+    if (result.change.is_some) {
+        shieldedPot.writeCoin(result.change.value, right(kernel.self()));
+    } else {
+        hasShieldedPot = false;
+    }
+}
+
 // Owner-only: withdraw contract funds back to the owner's address.
 export circuit withdraw(amount: Uint<64>, destination: UserAddress): [] {
     requireOwner();
@@ -234,6 +273,41 @@ export circuit deposit(amount: Uint<64>): [] {
 
     receiveUnshielded(nativeToken(), disclose(amount));
     totalDeposited = (totalDeposited + disclose(amount)) as Uint<64>;
+
+    replaceNote(sk, n, PolicyNote {
+        balance: (n.balance + amount) as Uint<64>,
+        spentInPeriod: n.spentInPeriod,
+        dailyLimit: n.dailyLimit,
+        perPaymentLimit: n.perPaymentLimit,
+        periodEndsAt: n.periodEndsAt,
+        discoverySpent: n.discoverySpent,
+        discoveryCap: n.discoveryCap,
+        nonce: nextNonce()
+    });
+}
+
+// Shielded deposit: the agent's wallet sends a shielded coin to the pool. The
+// sender stays hidden by the shielded layer; the coin's disclosed value credits
+// the agent's note exactly like the unshielded deposit. (Receive-only: the send
+// side lives in the settlement circuits, never mixed in one circuit.)
+export circuit depositShielded(coin: ShieldedCoinInfo): [] {
+    const sk = agentSecret();
+    const n = requireActiveNote();
+    const incoming = disclose(coin);
+    const amount = incoming.value as Uint<64>;
+    assert(amount > 0, "Deposit amount must be positive");
+
+    receiveShielded(incoming);
+
+    if (hasShieldedPot) {
+        const merged = mergeCoinImmediate(shieldedPot, incoming);
+        shieldedPot.writeCoin(merged, right(kernel.self()));
+    } else {
+        shieldedPot.writeCoin(incoming, right(kernel.self()));
+        hasShieldedPot = true;
+    }
+
+    totalDeposited = (totalDeposited + amount) as Uint<64>;
 
     replaceNote(sk, n, PolicyNote {
         balance: (n.balance + amount) as Uint<64>,
@@ -326,6 +400,53 @@ export circuit payInvoice(
             nonce: nextNonce()
         });
     }
+
+    usedInvoices.insert(disclose(invoiceHash));
+    lastSettledInvoice = disclose(invoiceHash);
+    totalSettledAmount = (totalSettledAmount + disclose(amount)) as Uint<64>;
+}
+
+// Shielded settlement: identical authorization to payInvoice — the same note,
+// policy, replay and budget checks — but the recipient is an owner-approved
+// shielded key paid from the shielded pool. The sender stays hidden by the
+// shielded layer; the (single-use, unlinkable) recipient key and the amount
+// are disclosed parameters. Change returns to the pool. (Send-only: the
+// receive side lives in depositShielded, never mixed in one circuit.)
+export circuit payShielded(
+    recipient: ZswapCoinPublicKey,
+    invoiceHash: Bytes<32>,
+    amount: Uint<64>
+): [] {
+    const sk = agentSecret();
+    const n = requireActiveNote();
+
+    assert(hasShieldedPot, "Shielded pool is empty");
+    assert(allowedShieldedKeys.member(disclose(recipient.bytes)), "Recipient key is not allowlisted");
+    assert(!usedInvoices.member(disclose(invoiceHash)), "Invoice has already been paid");
+
+    assert(amount > 0, "Payment amount must be positive");
+    assert(n.balance >= amount, "Insufficient agent balance");
+    assert(n.perPaymentLimit >= amount, "Payment exceeds per-payment limit");
+    assert(n.spentInPeriod + amount <= n.dailyLimit, "Payment exceeds daily limit");
+
+    const pot = shieldedPot;
+    const result = sendShielded(pot, left(disclose(recipient)), disclose(amount));
+    if (result.change.is_some) {
+        shieldedPot.writeCoin(result.change.value, right(kernel.self()));
+    } else {
+        hasShieldedPot = false;
+    }
+
+    replaceNote(sk, n, PolicyNote {
+        balance: (n.balance - amount) as Uint<64>,
+        spentInPeriod: (n.spentInPeriod + amount) as Uint<64>,
+        dailyLimit: n.dailyLimit,
+        perPaymentLimit: n.perPaymentLimit,
+        periodEndsAt: n.periodEndsAt,
+        discoverySpent: n.discoverySpent,
+        discoveryCap: n.discoveryCap,
+        nonce: nextNonce()
+    });
 
     usedInvoices.insert(disclose(invoiceHash));
     lastSettledInvoice = disclose(invoiceHash);
