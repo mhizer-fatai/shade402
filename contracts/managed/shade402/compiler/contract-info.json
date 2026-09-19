@@ -28,6 +28,13 @@
             "type-name": "Uint",
             "maxval": 18446744073709551615
           }
+        },
+        {
+          "name": "discoveryCap",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
         }
       ],
       "result-type": {
@@ -317,6 +324,20 @@
           },
           {
             "name": "periodEndsAt",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "discoverySpent",
+            "type": {
+              "type-name": "Uint",
+              "maxval": 18446744073709551615
+            }
+          },
+          {
+            "name": "discoveryCap",
             "type": {
               "type-name": "Uint",
               "maxval": 18446744073709551615

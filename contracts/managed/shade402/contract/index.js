@@ -25,7 +25,7 @@ const _descriptor_3 = __compactRuntime.CompactTypeBoolean;
 
 class _PolicyNote_0 {
   alignment() {
-    return _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_1.alignment())))));
+    return _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_1.alignment())))))));
   }
   fromValue(value_0) {
     return {
@@ -34,11 +34,13 @@ class _PolicyNote_0 {
       dailyLimit: _descriptor_0.fromValue(value_0),
       perPaymentLimit: _descriptor_0.fromValue(value_0),
       periodEndsAt: _descriptor_0.fromValue(value_0),
+      discoverySpent: _descriptor_0.fromValue(value_0),
+      discoveryCap: _descriptor_0.fromValue(value_0),
       nonce: _descriptor_1.fromValue(value_0)
     }
   }
   toValue(value_0) {
-    return _descriptor_0.toValue(value_0.balance).concat(_descriptor_0.toValue(value_0.spentInPeriod).concat(_descriptor_0.toValue(value_0.dailyLimit).concat(_descriptor_0.toValue(value_0.perPaymentLimit).concat(_descriptor_0.toValue(value_0.periodEndsAt).concat(_descriptor_1.toValue(value_0.nonce))))));
+    return _descriptor_0.toValue(value_0.balance).concat(_descriptor_0.toValue(value_0.spentInPeriod).concat(_descriptor_0.toValue(value_0.dailyLimit).concat(_descriptor_0.toValue(value_0.perPaymentLimit).concat(_descriptor_0.toValue(value_0.periodEndsAt).concat(_descriptor_0.toValue(value_0.discoverySpent).concat(_descriptor_0.toValue(value_0.discoveryCap).concat(_descriptor_1.toValue(value_0.nonce))))))));
   }
 }
 
@@ -102,7 +104,7 @@ const _descriptor_10 = new __compactRuntime.CompactTypeVector(4, _descriptor_1);
 
 const _descriptor_11 = new __compactRuntime.CompactTypeVector(3, _descriptor_1);
 
-const _descriptor_12 = new __compactRuntime.CompactTypeVector(5, _descriptor_0);
+const _descriptor_12 = new __compactRuntime.CompactTypeVector(7, _descriptor_0);
 
 const _descriptor_13 = new __compactRuntime.CompactTypeVector(2, _descriptor_1);
 
@@ -214,46 +216,54 @@ export class Contract {
     this.witnesses = witnesses_0;
     this.circuits = {
       registerAgent: (...args_1) => {
-        if (args_1.length !== 4) {
-          throw new __compactRuntime.CompactError(`registerAgent: expected 4 arguments (as invoked from Typescript), received ${args_1.length}`);
+        if (args_1.length !== 5) {
+          throw new __compactRuntime.CompactError(`registerAgent: expected 5 arguments (as invoked from Typescript), received ${args_1.length}`);
         }
         const contextOrig_0 = args_1[0];
         const dailyLimit_0 = args_1[1];
         const perPaymentLimit_0 = args_1[2];
         const periodEndsAt_0 = args_1[3];
+        const discoveryCap_0 = args_1[4];
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('registerAgent',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 169 char 1',
+                                     'shade402.compact line 174 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(dailyLimit_0) === 'bigint' && dailyLimit_0 >= 0n && dailyLimit_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('registerAgent',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 169 char 1',
+                                     'shade402.compact line 174 char 1',
                                      'Uint<0..18446744073709551616>',
                                      dailyLimit_0)
         }
         if (!(typeof(perPaymentLimit_0) === 'bigint' && perPaymentLimit_0 >= 0n && perPaymentLimit_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('registerAgent',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'shade402.compact line 169 char 1',
+                                     'shade402.compact line 174 char 1',
                                      'Uint<0..18446744073709551616>',
                                      perPaymentLimit_0)
         }
         if (!(typeof(periodEndsAt_0) === 'bigint' && periodEndsAt_0 >= 0n && periodEndsAt_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('registerAgent',
                                      'argument 3 (argument 4 as invoked from Typescript)',
-                                     'shade402.compact line 169 char 1',
+                                     'shade402.compact line 174 char 1',
                                      'Uint<0..18446744073709551616>',
                                      periodEndsAt_0)
+        }
+        if (!(typeof(discoveryCap_0) === 'bigint' && discoveryCap_0 >= 0n && discoveryCap_0 <= 18446744073709551615n)) {
+          __compactRuntime.typeError('registerAgent',
+                                     'argument 4 (argument 5 as invoked from Typescript)',
+                                     'shade402.compact line 174 char 1',
+                                     'Uint<0..18446744073709551616>',
+                                     discoveryCap_0)
         }
         const context = { ...contextOrig_0, gasCost: __compactRuntime.emptyRunningCost() };
         const partialProofData = {
           input: {
-            value: _descriptor_0.toValue(dailyLimit_0).concat(_descriptor_0.toValue(perPaymentLimit_0).concat(_descriptor_0.toValue(periodEndsAt_0))),
-            alignment: _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment()))
+            value: _descriptor_0.toValue(dailyLimit_0).concat(_descriptor_0.toValue(perPaymentLimit_0).concat(_descriptor_0.toValue(periodEndsAt_0).concat(_descriptor_0.toValue(discoveryCap_0)))),
+            alignment: _descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment().concat(_descriptor_0.alignment())))
           },
           output: undefined,
           publicTranscript: [],
@@ -263,7 +273,8 @@ export class Contract {
                                                partialProofData,
                                                dailyLimit_0,
                                                perPaymentLimit_0,
-                                               periodEndsAt_0);
+                                               periodEndsAt_0,
+                                               discoveryCap_0);
         partialProofData.output = { value: [], alignment: [] };
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
       },
@@ -276,14 +287,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('allowProvider',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 192 char 1',
+                                     'shade402.compact line 200 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(provider_0) === 'object' && provider_0.bytes.buffer instanceof ArrayBuffer && provider_0.bytes.BYTES_PER_ELEMENT === 1 && provider_0.bytes.length === 32)) {
           __compactRuntime.typeError('allowProvider',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 192 char 1',
+                                     'shade402.compact line 200 char 1',
                                      'struct UserAddress<bytes: Bytes<32>>',
                                      provider_0)
         }
@@ -312,14 +323,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('revokeProvider',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 199 char 1',
+                                     'shade402.compact line 207 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(provider_0) === 'object' && provider_0.bytes.buffer instanceof ArrayBuffer && provider_0.bytes.BYTES_PER_ELEMENT === 1 && provider_0.bytes.length === 32)) {
           __compactRuntime.typeError('revokeProvider',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 199 char 1',
+                                     'shade402.compact line 207 char 1',
                                      'struct UserAddress<bytes: Bytes<32>>',
                                      provider_0)
         }
@@ -349,21 +360,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('withdraw',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 206 char 1',
+                                     'shade402.compact line 214 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(amount_0) === 'bigint' && amount_0 >= 0n && amount_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('withdraw',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 206 char 1',
+                                     'shade402.compact line 214 char 1',
                                      'Uint<0..18446744073709551616>',
                                      amount_0)
         }
         if (!(typeof(destination_0) === 'object' && destination_0.bytes.buffer instanceof ArrayBuffer && destination_0.bytes.BYTES_PER_ELEMENT === 1 && destination_0.bytes.length === 32)) {
           __compactRuntime.typeError('withdraw',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'shade402.compact line 206 char 1',
+                                     'shade402.compact line 214 char 1',
                                      'struct UserAddress<bytes: Bytes<32>>',
                                      destination_0)
         }
@@ -393,14 +404,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('deposit',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 222 char 1',
+                                     'shade402.compact line 230 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(amount_0) === 'bigint' && amount_0 >= 0n && amount_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('deposit',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 222 char 1',
+                                     'shade402.compact line 230 char 1',
                                      'Uint<0..18446744073709551616>',
                                      amount_0)
         }
@@ -427,14 +438,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('rollPeriod',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 244 char 1',
+                                     'shade402.compact line 254 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(periodEndsAtPublic_0) === 'bigint' && periodEndsAtPublic_0 >= 0n && periodEndsAtPublic_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('rollPeriod',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 244 char 1',
+                                     'shade402.compact line 254 char 1',
                                      'Uint<0..18446744073709551616>',
                                      periodEndsAtPublic_0)
         }
@@ -465,28 +476,28 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('payInvoice',
                                      'argument 1 (as invoked from Typescript)',
-                                     'shade402.compact line 263 char 1',
+                                     'shade402.compact line 275 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(recipient_0) === 'object' && recipient_0.bytes.buffer instanceof ArrayBuffer && recipient_0.bytes.BYTES_PER_ELEMENT === 1 && recipient_0.bytes.length === 32)) {
           __compactRuntime.typeError('payInvoice',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'shade402.compact line 263 char 1',
+                                     'shade402.compact line 275 char 1',
                                      'struct UserAddress<bytes: Bytes<32>>',
                                      recipient_0)
         }
         if (!(invoiceHash_0.buffer instanceof ArrayBuffer && invoiceHash_0.BYTES_PER_ELEMENT === 1 && invoiceHash_0.length === 32)) {
           __compactRuntime.typeError('payInvoice',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'shade402.compact line 263 char 1',
+                                     'shade402.compact line 275 char 1',
                                      'Bytes<32>',
                                      invoiceHash_0)
         }
         if (!(typeof(amount_0) === 'bigint' && amount_0 >= 0n && amount_0 <= 18446744073709551615n)) {
           __compactRuntime.typeError('payInvoice',
                                      'argument 3 (argument 4 as invoked from Typescript)',
-                                     'shade402.compact line 263 char 1',
+                                     'shade402.compact line 275 char 1',
                                      'Uint<0..18446744073709551616>',
                                      amount_0)
         }
@@ -1003,7 +1014,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('localSecret',
                                  'return value',
-                                 'shade402.compact line 73 char 1',
+                                 'shade402.compact line 75 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -1020,7 +1031,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('agentSecret',
                                  'return value',
-                                 'shade402.compact line 74 char 1',
+                                 'shade402.compact line 76 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -1037,7 +1048,7 @@ export class Contract {
     if (!(typeof(result_0) === 'object' && result_0.leaf.buffer instanceof ArrayBuffer && result_0.leaf.BYTES_PER_ELEMENT === 1 && result_0.leaf.length === 32 && Array.isArray(result_0.path) && result_0.path.length === 16 && result_0.path.every((t) => typeof(t) === 'object' && typeof(t.sibling) === 'object' && typeof(t.sibling.field) === 'bigint' && t.sibling.field >= 0 && t.sibling.field <= __compactRuntime.MAX_FIELD && typeof(t.goes_left) === 'boolean'))) {
       __compactRuntime.typeError('agentPath',
                                  'return value',
-                                 'shade402.compact line 75 char 1',
+                                 'shade402.compact line 77 char 1',
                                  'struct MerkleTreePath<leaf: Bytes<32>, path: Vector<16, struct MerkleTreePathEntry<sibling: struct MerkleTreeDigest<field: Field>, goes_left: Boolean>>>',
                                  result_0)
     }
@@ -1051,11 +1062,11 @@ export class Contract {
     const witnessContext_0 = __compactRuntime.createWitnessContext(ledger(context.currentQueryContext.state), context.currentPrivateState, context.currentQueryContext.address);
     const [nextPrivateState_0, result_0] = this.witnesses.note(witnessContext_0);
     context.currentPrivateState = nextPrivateState_0;
-    if (!(typeof(result_0) === 'object' && typeof(result_0.balance) === 'bigint' && result_0.balance >= 0n && result_0.balance <= 18446744073709551615n && typeof(result_0.spentInPeriod) === 'bigint' && result_0.spentInPeriod >= 0n && result_0.spentInPeriod <= 18446744073709551615n && typeof(result_0.dailyLimit) === 'bigint' && result_0.dailyLimit >= 0n && result_0.dailyLimit <= 18446744073709551615n && typeof(result_0.perPaymentLimit) === 'bigint' && result_0.perPaymentLimit >= 0n && result_0.perPaymentLimit <= 18446744073709551615n && typeof(result_0.periodEndsAt) === 'bigint' && result_0.periodEndsAt >= 0n && result_0.periodEndsAt <= 18446744073709551615n && result_0.nonce.buffer instanceof ArrayBuffer && result_0.nonce.BYTES_PER_ELEMENT === 1 && result_0.nonce.length === 32)) {
+    if (!(typeof(result_0) === 'object' && typeof(result_0.balance) === 'bigint' && result_0.balance >= 0n && result_0.balance <= 18446744073709551615n && typeof(result_0.spentInPeriod) === 'bigint' && result_0.spentInPeriod >= 0n && result_0.spentInPeriod <= 18446744073709551615n && typeof(result_0.dailyLimit) === 'bigint' && result_0.dailyLimit >= 0n && result_0.dailyLimit <= 18446744073709551615n && typeof(result_0.perPaymentLimit) === 'bigint' && result_0.perPaymentLimit >= 0n && result_0.perPaymentLimit <= 18446744073709551615n && typeof(result_0.periodEndsAt) === 'bigint' && result_0.periodEndsAt >= 0n && result_0.periodEndsAt <= 18446744073709551615n && typeof(result_0.discoverySpent) === 'bigint' && result_0.discoverySpent >= 0n && result_0.discoverySpent <= 18446744073709551615n && typeof(result_0.discoveryCap) === 'bigint' && result_0.discoveryCap >= 0n && result_0.discoveryCap <= 18446744073709551615n && result_0.nonce.buffer instanceof ArrayBuffer && result_0.nonce.BYTES_PER_ELEMENT === 1 && result_0.nonce.length === 32)) {
       __compactRuntime.typeError('note',
                                  'return value',
-                                 'shade402.compact line 76 char 1',
-                                 'struct PolicyNote<balance: Uint<0..18446744073709551616>, spentInPeriod: Uint<0..18446744073709551616>, dailyLimit: Uint<0..18446744073709551616>, perPaymentLimit: Uint<0..18446744073709551616>, periodEndsAt: Uint<0..18446744073709551616>, nonce: Bytes<32>>',
+                                 'shade402.compact line 78 char 1',
+                                 'struct PolicyNote<balance: Uint<0..18446744073709551616>, spentInPeriod: Uint<0..18446744073709551616>, dailyLimit: Uint<0..18446744073709551616>, perPaymentLimit: Uint<0..18446744073709551616>, periodEndsAt: Uint<0..18446744073709551616>, discoverySpent: Uint<0..18446744073709551616>, discoveryCap: Uint<0..18446744073709551616>, nonce: Bytes<32>>',
                                  result_0)
     }
     partialProofData.privateTranscriptOutputs.push({
@@ -1071,7 +1082,7 @@ export class Contract {
     if (!(typeof(result_0) === 'object' && result_0.leaf.buffer instanceof ArrayBuffer && result_0.leaf.BYTES_PER_ELEMENT === 1 && result_0.leaf.length === 32 && Array.isArray(result_0.path) && result_0.path.length === 16 && result_0.path.every((t) => typeof(t) === 'object' && typeof(t.sibling) === 'object' && typeof(t.sibling.field) === 'bigint' && t.sibling.field >= 0 && t.sibling.field <= __compactRuntime.MAX_FIELD && typeof(t.goes_left) === 'boolean'))) {
       __compactRuntime.typeError('notePath',
                                  'return value',
-                                 'shade402.compact line 77 char 1',
+                                 'shade402.compact line 79 char 1',
                                  'struct MerkleTreePath<leaf: Bytes<32>, path: Vector<16, struct MerkleTreePathEntry<sibling: struct MerkleTreeDigest<field: Field>, goes_left: Boolean>>>',
                                  result_0)
     }
@@ -1088,7 +1099,7 @@ export class Contract {
     if (!(result_0.buffer instanceof ArrayBuffer && result_0.BYTES_PER_ELEMENT === 1 && result_0.length === 32)) {
       __compactRuntime.typeError('nextNonce',
                                  'return value',
-                                 'shade402.compact line 78 char 1',
+                                 'shade402.compact line 80 char 1',
                                  'Bytes<32>',
                                  result_0)
     }
@@ -1129,7 +1140,9 @@ export class Contract {
                                              n_0.spentInPeriod,
                                              n_0.dailyLimit,
                                              n_0.perPaymentLimit,
-                                             n_0.periodEndsAt]);
+                                             n_0.periodEndsAt,
+                                             n_0.discoverySpent,
+                                             n_0.discoveryCap]);
     return this._persistentHash_4([new Uint8Array([115, 104, 97, 100, 101, 52, 48, 50, 58, 112, 111, 108, 105, 99, 121, 45, 110, 111, 116, 101, 58, 118, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    sk_0,
                                    fields_0,
@@ -1302,7 +1315,8 @@ export class Contract {
                    partialProofData,
                    dailyLimit_0,
                    perPaymentLimit_0,
-                   periodEndsAt_0)
+                   periodEndsAt_0,
+                   discoveryCap_0)
   {
     this._requireOwner_0(context, partialProofData);
     __compactRuntime.assert(dailyLimit_0 > 0n, 'Daily limit must be positive');
@@ -1373,6 +1387,8 @@ export class Contract {
                                            dailyLimit: dailyLimit_0,
                                            perPaymentLimit: perPaymentLimit_0,
                                            periodEndsAt: periodEndsAt_0,
+                                           discoverySpent: 0n,
+                                           discoveryCap: discoveryCap_0,
                                            nonce:
                                              this._nextNonce_0(context,
                                                                partialProofData) });
@@ -1530,7 +1546,7 @@ export class Contract {
                               amount_0);
     const tmp_0 = ((t1) => {
                     if (t1 > 18446744073709551615n) {
-                      throw new __compactRuntime.CompactError('shade402.compact line 228 char 22: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                      throw new __compactRuntime.CompactError('shade402.compact line 236 char 22: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                     }
                     return t1;
                   })(_descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
@@ -1564,7 +1580,7 @@ export class Contract {
                         { balance:
                             ((t1) => {
                               if (t1 > 18446744073709551615n) {
-                                throw new __compactRuntime.CompactError('shade402.compact line 231 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                throw new __compactRuntime.CompactError('shade402.compact line 239 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                               }
                               return t1;
                             })(n_0.balance + amount_0),
@@ -1572,6 +1588,8 @@ export class Contract {
                           dailyLimit: n_0.dailyLimit,
                           perPaymentLimit: n_0.perPaymentLimit,
                           periodEndsAt: n_0.periodEndsAt,
+                          discoverySpent: n_0.discoverySpent,
+                          discoveryCap: n_0.discoveryCap,
                           nonce: this._nextNonce_0(context, partialProofData) });
     return [];
   }
@@ -1595,10 +1613,12 @@ export class Contract {
                           periodEndsAt:
                             ((t1) => {
                               if (t1 > 18446744073709551615n) {
-                                throw new __compactRuntime.CompactError('shade402.compact line 255 char 23: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                throw new __compactRuntime.CompactError('shade402.compact line 265 char 23: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                               }
                               return t1;
                             })(n_0.periodEndsAt + 86400n),
+                          discoverySpent: 0n,
+                          discoveryCap: n_0.discoveryCap,
                           nonce: this._nextNonce_0(context, partialProofData) });
     return [];
   }
@@ -1656,27 +1676,81 @@ export class Contract {
                            this._nativeToken_0(),
                            amount_0,
                            this._right_0(recipient_0));
-    let t_3;
-    this._replaceNote_0(context,
-                        partialProofData,
-                        sk_0,
-                        n_0,
-                        { balance:
-                            (t_3 = n_0.balance,
-                             (__compactRuntime.assert(t_3 >= amount_0,
-                                                      'result of subtraction would be negative'),
-                              t_3 - amount_0)),
-                          spentInPeriod:
-                            ((t1) => {
-                              if (t1 > 18446744073709551615n) {
-                                throw new __compactRuntime.CompactError('shade402.compact line 293 char 24: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
-                              }
-                              return t1;
-                            })(n_0.spentInPeriod + amount_0),
-                          dailyLimit: n_0.dailyLimit,
-                          perPaymentLimit: n_0.perPaymentLimit,
-                          periodEndsAt: n_0.periodEndsAt,
-                          nonce: this._nextNonce_0(context, partialProofData) });
+    if (_descriptor_3.fromValue(__compactRuntime.queryLedgerState(context,
+                                                                  partialProofData,
+                                                                  [
+                                                                   { dup: { n: 0 } },
+                                                                   { idx: { cached: false,
+                                                                            pushPath: false,
+                                                                            path: [
+                                                                                   { tag: 'value',
+                                                                                     value: { value: _descriptor_21.toValue(4n),
+                                                                                              alignment: _descriptor_21.alignment() } }] } },
+                                                                   { push: { storage: false,
+                                                                             value: __compactRuntime.StateValue.newCell({ value: _descriptor_2.toValue(recipient_0),
+                                                                                                                          alignment: _descriptor_2.alignment() }).encode() } },
+                                                                   'member',
+                                                                   { popeq: { cached: true,
+                                                                              result: undefined } }]).value))
+    {
+      let t_3;
+      this._replaceNote_0(context,
+                          partialProofData,
+                          sk_0,
+                          n_0,
+                          { balance:
+                              (t_3 = n_0.balance,
+                               (__compactRuntime.assert(t_3 >= amount_0,
+                                                        'result of subtraction would be negative'),
+                                t_3 - amount_0)),
+                            spentInPeriod:
+                              ((t1) => {
+                                if (t1 > 18446744073709551615n) {
+                                  throw new __compactRuntime.CompactError('shade402.compact line 308 char 28: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                }
+                                return t1;
+                              })(n_0.spentInPeriod + amount_0),
+                            dailyLimit: n_0.dailyLimit,
+                            perPaymentLimit: n_0.perPaymentLimit,
+                            periodEndsAt: n_0.periodEndsAt,
+                            discoverySpent: n_0.discoverySpent,
+                            discoveryCap: n_0.discoveryCap,
+                            nonce: this._nextNonce_0(context, partialProofData) });
+    } else {
+      let t_4;
+      __compactRuntime.assert((t_4 = n_0.discoverySpent + amount_0,
+                               t_4 <= n_0.discoveryCap),
+                              'Recipient is not an allowed provider (and exceeds the discovery budget)');
+      let t_5;
+      this._replaceNote_0(context,
+                          partialProofData,
+                          sk_0,
+                          n_0,
+                          { balance:
+                              (t_5 = n_0.balance,
+                               (__compactRuntime.assert(t_5 >= amount_0,
+                                                        'result of subtraction would be negative'),
+                                t_5 - amount_0)),
+                            spentInPeriod:
+                              ((t1) => {
+                                if (t1 > 18446744073709551615n) {
+                                  throw new __compactRuntime.CompactError('shade402.compact line 320 char 28: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                }
+                                return t1;
+                              })(n_0.spentInPeriod + amount_0),
+                            dailyLimit: n_0.dailyLimit,
+                            perPaymentLimit: n_0.perPaymentLimit,
+                            periodEndsAt: n_0.periodEndsAt,
+                            discoverySpent:
+                              ((t1) => {
+                                if (t1 > 18446744073709551615n) {
+                                  throw new __compactRuntime.CompactError('shade402.compact line 324 char 29: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                }
+                                return t1;
+                              })(n_0.discoverySpent + amount_0),
+                            discoveryCap: n_0.discoveryCap,
+                            nonce: this._nextNonce_0(context, partialProofData) });
+    }
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [
@@ -1705,7 +1779,7 @@ export class Contract {
                                        { ins: { cached: false, n: 1 } }]);
     const tmp_0 = ((t1) => {
                     if (t1 > 18446744073709551615n) {
-                      throw new __compactRuntime.CompactError('shade402.compact line 302 char 26: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                      throw new __compactRuntime.CompactError('shade402.compact line 332 char 26: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
                     }
                     return t1;
                   })(_descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,

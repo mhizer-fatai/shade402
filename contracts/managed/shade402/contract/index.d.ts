@@ -14,6 +14,8 @@ export type Witnesses<PS> = {
                                                                      dailyLimit: bigint,
                                                                      perPaymentLimit: bigint,
                                                                      periodEndsAt: bigint,
+                                                                     discoverySpent: bigint,
+                                                                     discoveryCap: bigint,
                                                                      nonce: Uint8Array
                                                                    }];
   notePath(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, { leaf: Uint8Array,
@@ -29,7 +31,8 @@ export type ImpureCircuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
                 perPaymentLimit_0: bigint,
-                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                periodEndsAt_0: bigint,
+                discoveryCap_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
@@ -50,7 +53,8 @@ export type ProvableCircuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
                 perPaymentLimit_0: bigint,
-                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                periodEndsAt_0: bigint,
+                discoveryCap_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
@@ -74,7 +78,8 @@ export type Circuits<PS> = {
   registerAgent(context: __compactRuntime.CircuitContext<PS>,
                 dailyLimit_0: bigint,
                 perPaymentLimit_0: bigint,
-                periodEndsAt_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                periodEndsAt_0: bigint,
+                discoveryCap_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   allowProvider(context: __compactRuntime.CircuitContext<PS>,
                 provider_0: { bytes: Uint8Array }): __compactRuntime.CircuitResults<PS, []>;
   revokeProvider(context: __compactRuntime.CircuitContext<PS>,
