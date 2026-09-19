@@ -78,6 +78,8 @@ const NOTE = {
   dailyLimit: 1000n,
   perPaymentLimit: 200n,
   periodEndsAt: 1_800_000_000n,
+  discoverySpent: 0n,
+  discoveryCap: 10n,
 };
 
 const f = (n: number) => new Uint8Array(32).fill(n);
@@ -101,6 +103,8 @@ test('note commitment changes when any committed field changes', () => {
     { ...NOTE, dailyLimit: 1001n, nonce },
     { ...NOTE, perPaymentLimit: 201n, nonce },
     { ...NOTE, periodEndsAt: 1_800_086_400n, nonce },
+    { ...NOTE, discoverySpent: 1n, nonce },
+    { ...NOTE, discoveryCap: 11n, nonce },
   ];
   for (const v of variants) {
     assert.notDeepEqual(base, Shade402Client.noteCommitment(secret, v));
@@ -127,15 +131,19 @@ test('a successor note is only applied on commit, and discarded on abort', () =>
 
   const successor = client.prepareNextNote({ balance: 85n, spentInPeriod: 15n });
   assert.equal(successor.balance, 85n);
+  // Discovery fields carry forward unless explicitly overridden.
+  assert.equal(successor.discoverySpent, 0n);
+  assert.equal(successor.discoveryCap, 10n);
   // Not applied yet: the client still points at the on-chain commitment.
   assert.deepEqual(client.getNoteCommitment(), before);
 
   client.abortNextNote();
   assert.deepEqual(client.getNoteCommitment(), before);
 
-  client.prepareNextNote({ balance: 85n, spentInPeriod: 15n });
+  client.prepareNextNote({ balance: 85n, spentInPeriod: 15n, discoverySpent: 5n });
   client.commitNextNote();
   assert.equal(client.getPolicy().balance, 85n);
+  assert.equal(client.getPolicy().discoverySpent, 5n);
   assert.notDeepEqual(client.getNoteCommitment(), before);
 });
 

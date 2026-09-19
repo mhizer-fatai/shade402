@@ -57,6 +57,8 @@ struct PolicyNote {
     dailyLimit: Uint<64>;
     perPaymentLimit: Uint<64>;
     periodEndsAt: Uint<64>;
+    discoverySpent: Uint<64>;
+    discoveryCap: Uint<64>;
     nonce: Bytes<32>;
 }
 
@@ -109,12 +111,14 @@ circuit requireOwner(): [] {
 // fields are hashed as a Uint vector first and that digest is bound to the
 // domain, the agent secret and the nonce.)
 circuit noteCommitment(sk: Bytes<32>, n: PolicyNote): Bytes<32> {
-    const fields = persistentHash<Vector<5, Uint<64>>>([
+    const fields = persistentHash<Vector<7, Uint<64>>>([
         n.balance,
         n.spentInPeriod,
         n.dailyLimit,
         n.perPaymentLimit,
-        n.periodEndsAt
+        n.periodEndsAt,
+        n.discoverySpent,
+        n.discoveryCap
     ]);
     return persistentHash<Vector<4, Bytes<32>>>([
         pad(32, "shade402:policy-note:v3"),
@@ -165,11 +169,13 @@ circuit replaceNote(sk: Bytes<32>, n: PolicyNote, next: PolicyNote): [] {
 // ─── Owner circuits ─────────────────────────────────────────────────────────
 
 // Register an agent: append its identity commitment and mint its first policy
-// note with a zero balance and the owner-set limits.
+// note with a zero balance and the owner-set limits, including the discovery
+// budget for not-yet-allowlisted providers (0 disables discovery entirely).
 export circuit registerAgent(
     dailyLimit: Uint<64>,
     perPaymentLimit: Uint<64>,
-    periodEndsAt: Uint<64>
+    periodEndsAt: Uint<64>,
+    discoveryCap: Uint<64>
 ): [] {
     requireOwner();
     assert(dailyLimit > 0, "Daily limit must be positive");
@@ -184,6 +190,8 @@ export circuit registerAgent(
         dailyLimit: dailyLimit,
         perPaymentLimit: perPaymentLimit,
         periodEndsAt: periodEndsAt,
+        discoverySpent: 0,
+        discoveryCap: discoveryCap,
         nonce: nextNonce()
     })));
 }
@@ -233,14 +241,16 @@ export circuit deposit(amount: Uint<64>): [] {
         dailyLimit: n.dailyLimit,
         perPaymentLimit: n.perPaymentLimit,
         periodEndsAt: n.periodEndsAt,
+        discoverySpent: n.discoverySpent,
+        discoveryCap: n.discoveryCap,
         nonce: nextNonce()
     });
 }
 
-// Roll a finished period over: reset the committed spend and extend the period
-// end. The period end is a public parameter so the chain can time-check it; the
-// proof binds it to the committed note, so it cannot be rolled early or with a
-// fabricated period.
+// Roll a finished period over: reset the committed spend and the discovery
+// spend, and extend the period end. The period end is a public parameter so the
+// chain can time-check it; the proof binds it to the committed note, so it
+// cannot be rolled early or with a fabricated period.
 export circuit rollPeriod(periodEndsAtPublic: Uint<64>): [] {
     const sk = agentSecret();
     const n = requireActiveNote();
@@ -253,6 +263,8 @@ export circuit rollPeriod(periodEndsAtPublic: Uint<64>): [] {
         dailyLimit: n.dailyLimit,
         perPaymentLimit: n.perPaymentLimit,
         periodEndsAt: (n.periodEndsAt + 86400) as Uint<64>,
+        discoverySpent: 0,
+        discoveryCap: n.discoveryCap,
         nonce: nextNonce()
     });
 }
@@ -287,15 +299,33 @@ export circuit payInvoice(
         right<ContractAddress, UserAddress>(disclose(recipient))
     );
 
-    // Consume the note and append its successor.
-    replaceNote(sk, n, PolicyNote {
-        balance: (n.balance - amount) as Uint<64>,
-        spentInPeriod: (n.spentInPeriod + amount) as Uint<64>,
-        dailyLimit: n.dailyLimit,
-        perPaymentLimit: n.perPaymentLimit,
-        periodEndsAt: n.periodEndsAt,
-        nonce: nextNonce()
-    });
+    // Drain protection with a bounded discovery exception: an unallowlisted
+    // recipient may be paid only inside the agent's discovery budget, and the
+    // successor note records that spend so it cannot recur.
+    if (allowedProviders.member(disclose(recipient))) {
+        replaceNote(sk, n, PolicyNote {
+            balance: (n.balance - amount) as Uint<64>,
+            spentInPeriod: (n.spentInPeriod + amount) as Uint<64>,
+            dailyLimit: n.dailyLimit,
+            perPaymentLimit: n.perPaymentLimit,
+            periodEndsAt: n.periodEndsAt,
+            discoverySpent: n.discoverySpent,
+            discoveryCap: n.discoveryCap,
+            nonce: nextNonce()
+        });
+    } else {
+        assert(n.discoverySpent + amount <= n.discoveryCap, "Recipient is not an allowed provider (and exceeds the discovery budget)");
+        replaceNote(sk, n, PolicyNote {
+            balance: (n.balance - amount) as Uint<64>,
+            spentInPeriod: (n.spentInPeriod + amount) as Uint<64>,
+            dailyLimit: n.dailyLimit,
+            perPaymentLimit: n.perPaymentLimit,
+            periodEndsAt: n.periodEndsAt,
+            discoverySpent: (n.discoverySpent + amount) as Uint<64>,
+            discoveryCap: n.discoveryCap,
+            nonce: nextNonce()
+        });
+    }
 
     usedInvoices.insert(disclose(invoiceHash));
     lastSettledInvoice = disclose(invoiceHash);

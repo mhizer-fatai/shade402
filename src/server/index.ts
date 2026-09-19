@@ -101,6 +101,8 @@ function loadPolicy(): void {
       spentInPeriod: BigInt(raw.spentInPeriod ?? 0),
       periodEndsAt: BigInt(raw.periodEndsAt ?? 0),
       perPaymentLimit: BigInt(raw.perPaymentLimit ?? 0),
+      discoverySpent: BigInt(raw.discoverySpent ?? 0),
+      discoveryCap: BigInt(raw.discoveryCap ?? 0),
       ...(typeof raw.nonce === 'string' && raw.nonce.length === 64
         ? { nonce: new Uint8Array(Buffer.from(raw.nonce, 'hex')) }
         : {}),
@@ -124,6 +126,8 @@ function savePolicy(): void {
           spentInPeriod: p.spentInPeriod.toString(),
           periodEndsAt: p.periodEndsAt.toString(),
           perPaymentLimit: p.perPaymentLimit.toString(),
+          discoverySpent: p.discoverySpent.toString(),
+          discoveryCap: p.discoveryCap.toString(),
           nonce: Buffer.from(p.nonce).toString('hex'),
           name: agentName,
         },
@@ -440,11 +444,20 @@ app.get('/api/agent', async (_req, res) => {
 
 app.post('/api/agent/register', requireAuth, async (req, res) => {
   try {
-    const { dailyLimit, perPaymentLimit, periodHours, name } = req.body ?? {};
+    const { dailyLimit, perPaymentLimit, periodHours, name, discoveryCap } = req.body ?? {};
     const dl = BigInt(dailyLimit);
     const pl = BigInt(perPaymentLimit);
     if (dl <= 0n || pl <= 0n || pl > dl) {
       return res.status(400).json({ error: 'Limits must be positive, and per-payment must not exceed daily' });
+    }
+    let dcap = 0n;
+    try {
+      dcap = BigInt(discoveryCap ?? 0);
+    } catch {
+      return res.status(400).json({ error: 'discoveryCap must be an integer string' });
+    }
+    if (dcap < 0n) {
+      return res.status(400).json({ error: 'discoveryCap cannot be negative (0 disables discovery)' });
     }
     const hours = Number(periodHours ?? 24);
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) {
@@ -458,14 +471,14 @@ app.post('/api/agent/register', requireAuth, async (req, res) => {
     // cap, period) lives in the agent's private state and is what the policy
     // witnesses report on every payment.
     const periodEndsAt = BigInt(Math.floor(Date.now() / 1000) + hours * 3600);
-    client.setPolicy({ dailyLimit: dl, perPaymentLimit: pl, periodEndsAt });
+    client.setPolicy({ dailyLimit: dl, perPaymentLimit: pl, periodEndsAt, discoverySpent: 0n, discoveryCap: dcap });
     // v3: registration mints the agent's first committed policy note (zero
     // balance). The circuit takes only the note's nonce from the `nextNonce`
     // witness, so the successor is prepared here and committed only on success.
     client.prepareNextNote({ balance: 0n, spentInPeriod: 0n });
     let tx: any;
     try {
-      tx = await deployed.callTx.registerAgent(dl, pl, periodEndsAt);
+      tx = await deployed.callTx.registerAgent(dl, pl, periodEndsAt, dcap);
       client.commitNextNote();
     } catch (e) {
       client.abortNextNote();
@@ -612,12 +625,93 @@ app.post('/api/pay', requireAuth, async (req, res) => {
       'Payment exceeds per-payment limit',
       'Insufficient agent balance',
       'Invoice has already been paid',
+      'Recipient is not an allowed provider (and exceeds the discovery budget)',
       'Recipient is not an allowed provider',
       'Agent is not registered',
     ].find((m) => raw.includes(m));
     res
       .status(500)
       .json({ error: known ?? 'Payment failed (insufficient balance, limit reached, or chain rejection)' });
+  }
+});
+
+// Pay an arbitrary recipient inside the agent's discovery budget. The circuit
+// enforces discoverySpent + amount <= discoveryCap for recipients outside the
+// allowlist, so unapproved payees are bounded per period by construction.
+app.post('/api/pay/discover', requireAuth, async (req, res) => {
+  try {
+    const { providerAddress, amount: amountRaw, invoiceId } = req.body ?? {};
+    if (typeof providerAddress !== 'string' || !/^[0-9a-fA-F]{64}$/.test(providerAddress)) {
+      return res.status(400).json({ error: 'providerAddress must be a 64-char hex string' });
+    }
+    let amount: bigint;
+    try {
+      amount = BigInt(amountRaw);
+    } catch {
+      return res.status(400).json({ error: 'amount must be an integer string' });
+    }
+    if (amount <= 0n) {
+      return res.status(400).json({ error: 'amount must be positive' });
+    }
+    const recipientBytes = new Uint8Array(Buffer.from(providerAddress, 'hex'));
+    const id =
+      typeof invoiceId === 'string' && invoiceId
+        ? invoiceId
+        : `inv_${Date.now()}_${Math.floor(Math.random() * 1e9)}`;
+    const challenge: InvoiceChallenge = {
+      invoiceId: id,
+      recipientAddress: providerAddress,
+      amount,
+      expiresAt: Date.now() + 300_000,
+    };
+    const payload = client.buildPaymentPayload(challenge);
+    const policy = client.getPolicy();
+    // The successor note only moves discoverySpent when the recipient is not
+    // allowlisted; read the on-chain allowlist so the prepared note lands in
+    // the branch the circuit will take.
+    const state = await providers.publicDataProvider.queryContractState(deploymentAddress());
+    const allowlisted = !!state && ledger(state.data).allowedProviders.member({ bytes: recipientBytes });
+    client.prepareNextNote({
+      balance: policy.balance - amount,
+      spentInPeriod: policy.spentInPeriod + amount,
+      ...(allowlisted ? {} : { discoverySpent: policy.discoverySpent + amount }),
+    });
+    let tx: any;
+    try {
+      tx = await deployed.callTx.payInvoice(
+        { bytes: recipientBytes },
+        payload.invoiceHash,
+        payload.amount,
+      );
+      client.commitNextNote();
+    } catch (e) {
+      client.abortNextNote();
+      throw e;
+    }
+    savePolicy();
+    res.json({
+      ok: true,
+      invoiceId: id,
+      txId: tx.public.txId,
+      amount: amount.toString(),
+      blockHeight: tx.public.blockHeight,
+      invoiceHash: Buffer.from(payload.invoiceHash).toString('hex'),
+      receipt: `${tx.public.txId}:${id}`,
+      discovery: !allowlisted,
+    });
+  } catch (e: any) {
+    console.error('[pay/discover] failed:', e?.stack ?? e?.message ?? e);
+    const raw = `${e?.message ?? ''} ${e?.cause?.message ?? ''}`;
+    const known = [
+      'Payment exceeds daily limit',
+      'Payment exceeds per-payment limit',
+      'Insufficient agent balance',
+      'Invoice has already been paid',
+      'Recipient is not an allowed provider (and exceeds the discovery budget)',
+      'Recipient is not an allowed provider',
+      'Agent is not registered',
+    ].find((m) => raw.includes(m));
+    res.status(500).json({ error: known ?? 'Discovery payment failed' });
   }
 });
 
@@ -633,6 +727,7 @@ app.post('/api/agent/roll-period', requireAuth, async (_req, res) => {
     client.prepareNextNote({
       spentInPeriod: 0n,
       periodEndsAt: policy.periodEndsAt + 86400n,
+      discoverySpent: 0n,
     });
     let tx: any;
     try {

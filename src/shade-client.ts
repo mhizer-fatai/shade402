@@ -27,14 +27,14 @@ const bytes32Type = new CompactTypeBytes(32);
 const uint64Type = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
 const agentLeafType = new CompactTypeVector(2, bytes32Type);
-const noteFieldsType = new CompactTypeVector(5, uint64Type);
+const noteFieldsType = new CompactTypeVector(7, uint64Type);
 const noteCommitType = new CompactTypeVector(4, bytes32Type);
 const nullifierType = new CompactTypeVector(3, bytes32Type);
 
 // ─── Policy note (v3) ────────────────────────────────────────────────────────
 
 /**
- * The five numeric fields the contract hashes together before binding them to
+ * The seven numeric fields the contract hashes together before binding them to
  * the domain, the agent secret and the nonce.
  */
 export interface NoteFields {
@@ -43,6 +43,8 @@ export interface NoteFields {
   dailyLimit: bigint;
   perPaymentLimit: bigint;
   periodEndsAt: bigint;
+  discoverySpent: bigint;
+  discoveryCap: bigint;
 }
 
 /**
@@ -61,6 +63,8 @@ export function emptyPolicy(): AgentPolicy {
     dailyLimit: 0n,
     perPaymentLimit: 0n,
     periodEndsAt: 0n,
+    discoverySpent: 0n,
+    discoveryCap: 0n,
     nonce: new Uint8Array(crypto.randomBytes(32)),
   };
 }
@@ -160,6 +164,8 @@ export class Shade402Client {
       note.dailyLimit,
       note.perPaymentLimit,
       note.periodEndsAt,
+      note.discoverySpent,
+      note.discoveryCap,
     ]) as Uint8Array;
     return persistentHash(noteCommitType as any, [
       NOTE_PREFIX,
@@ -242,6 +248,8 @@ export class Shade402Client {
             dailyLimit: p.dailyLimit,
             perPaymentLimit: p.perPaymentLimit,
             periodEndsAt: p.periodEndsAt,
+            discoverySpent: p.discoverySpent,
+            discoveryCap: p.discoveryCap,
             nonce: p.nonce,
           },
         ];
